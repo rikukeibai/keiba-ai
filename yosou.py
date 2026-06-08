@@ -14,14 +14,17 @@ import argparse
 import concurrent.futures
 import csv
 import html as _html
+import os
 import re
 import sys
+import threading
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import requests
 from bs4 import BeautifulSoup
+from flask import Flask, Response, redirect
 
 from netkeiba_scraper import (
     HEADERS,
@@ -543,8 +546,8 @@ def generate_html_report(
     dates: List[str],
     hist_csv: str,
     total_hist: int,
-    filepath: str = "yosou_result.html",
-) -> None:
+    filepath: Optional[str] = "yosou_result.html",
+) -> str:
     """予想結果を keiba-ai-v2 デザインの HTML ファイルとして出力"""
 
     # ── ヘルパー ────────────────────────────────────────────
@@ -876,12 +879,288 @@ def generate_html_report(
 </body>
 </html>"""
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"HTML レポート生成完了: {filepath}", file=sys.stderr)
+    if filepath:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"HTML レポート生成完了: {filepath}", file=sys.stderr)
+    return html
 
 
-# ── メイン ────────────────────────────────────────────────────
+# ── Flask アプリ ──────────────────────────────────────────────
+
+app = Flask(__name__)
+
+_html_cache    = ""
+_last_updated  = ""
+_update_status = "idle"   # "idle" | "running" | "done" | "error"
+_update_error  = ""
+_update_lock   = threading.Lock()
+
+
+def _do_update(hist_csv: str, dates: List[str]) -> None:
+    """バックグラウンドで出馬表を取得して予想HTMLを更新する"""
+    global _html_cache, _last_updated, _update_status, _update_error
+    try:
+        print(f"[update] 対象日付: {dates}", file=sys.stderr)
+        hist_rates, total_hist = load_hist_rates(hist_csv)
+        print(f"[update] 過去実績: {total_hist} レース", file=sys.stderr)
+
+        all_race_ids: List[str] = []
+        for d in dates:
+            all_race_ids.extend(fetch_race_ids_for_date(d))
+
+        if not all_race_ids:
+            _update_status = "error"
+            _update_error  = "出馬表未公開（木曜以降に再実行してください）"
+            print(f"[update] {_update_error}", file=sys.stderr)
+            return
+
+        races_by_class: Dict[str, List[Dict]] = defaultdict(list)
+        n = len(all_race_ids)
+        for i, race_id in enumerate(all_race_ids, 1):
+            print(f"[update] [{i}/{n}] {race_id} ({race_label(race_id)})", file=sys.stderr)
+            sys.stderr.flush()
+            result = fetch_shutuba(race_id)
+            if result is None:
+                continue
+            race_title, race_date, horses = result
+            if not horses:
+                continue
+            horses = add_prediction_flags(horses, race_date)
+            cls    = classify(race_title)
+            races_by_class[cls].append({
+                "race_id":    race_id,
+                "race_title": race_title,
+                "race_date":  race_date,
+                "horses":     horses,
+            })
+
+        save_log(races_by_class, "yosou_log.csv")
+
+        _html_cache   = generate_html_report(
+            races_by_class, hist_rates, dates, hist_csv, total_hist,
+            filepath=None,
+        )
+        _last_updated  = date.today().strftime("%Y/%m/%d %H:%M")
+        _update_status = "done"
+        print("[update] 完了", file=sys.stderr)
+
+    except Exception as e:
+        _update_status = "error"
+        _update_error  = str(e)
+        print(f"[update] エラー: {e}", file=sys.stderr)
+
+
+def _updating_page() -> str:
+    return """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="10; url=/">
+<title>更新中...</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+background:#f5f5f0;display:flex;align-items:center;justify-content:center;
+min-height:100vh;color:#1a1a18}
+.box{text-align:center;background:#fff;border:1px solid #e8e8e4;
+border-radius:12px;padding:48px 64px}
+h2{color:#534AB7;font-size:18px;font-weight:500;margin-bottom:10px}
+p{color:#888;font-size:13px;line-height:1.8}
+.spinner{width:44px;height:44px;border:3px solid #EEEDFE;border-top-color:#534AB7;
+border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 24px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spinner"></div>
+  <h2>データ取得中...</h2>
+  <p>netkeibaから出馬表を取得しています。<br>このページは10秒ごとに自動更新されます。</p>
+</div>
+</body>
+</html>"""
+
+
+def _nodata_page() -> str:
+    return """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>学習適応仮説 予想</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+background:#f5f5f0;display:flex;align-items:center;justify-content:center;
+min-height:100vh;color:#1a1a18}
+.box{text-align:center;background:#fff;border:1px solid #e8e8e4;
+border-radius:12px;padding:48px 64px}
+h2{font-size:18px;font-weight:500;margin-bottom:10px}
+p{color:#888;font-size:13px;line-height:1.8;margin-bottom:28px}
+a.btn{display:inline-block;padding:10px 28px;background:#534AB7;color:#fff;
+border-radius:8px;text-decoration:none;font-size:14px;font-weight:500}
+a.btn:hover{background:#3C3489}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>学習適応仮説 予想レポート</h2>
+  <p>まだデータがありません。<br>下のボタンで最新の出馬表を取得してください。</p>
+  <a class="btn" href="/update">データを取得する</a>
+</div>
+</body>
+</html>"""
+
+
+def _error_page(msg: str) -> str:
+    safe = _html.escape(msg)
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>エラー</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+background:#f5f5f0;display:flex;align-items:center;justify-content:center;
+min-height:100vh;color:#1a1a18}}
+.box{{text-align:center;background:#fff;border:1px solid #e8e8e4;
+border-radius:12px;padding:48px 64px;max-width:480px}}
+h2{{font-size:18px;font-weight:500;color:#C13A2A;margin-bottom:10px}}
+p{{color:#888;font-size:12px;line-height:1.8;margin-bottom:24px}}
+.msg{{background:#FDECEA;border-radius:8px;padding:12px 16px;font-size:12px;
+color:#C13A2A;margin-bottom:24px;text-align:left}}
+a.btn{{display:inline-block;padding:10px 28px;background:#534AB7;color:#fff;
+border-radius:8px;text-decoration:none;font-size:14px;font-weight:500}}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>取得エラー</h2>
+  <div class="msg">{safe}</div>
+  <p>木曜日以降に出馬表が公開されると取得できます。</p>
+  <a class="btn" href="/update">再取得する</a>
+</div>
+</body>
+</html>"""
+
+
+@app.route("/")
+def index() -> Response:
+    if _update_status == "running":
+        return Response(_updating_page(), mimetype="text/html")
+    if _update_status == "error":
+        return Response(_error_page(_update_error), mimetype="text/html")
+    if not _html_cache:
+        return Response(_nodata_page(), mimetype="text/html")
+    return Response(_html_cache, mimetype="text/html")
+
+
+@app.route("/update")
+def trigger_update() -> Response:
+    global _update_status, _update_error
+    with _update_lock:
+        if _update_status == "running":
+            return redirect("/")
+        _update_status = "running"
+        _update_error  = ""
+    hist_csv = os.environ.get("HIST_CSV", DEFAULT_HIST)
+    dates    = next_weekend_dates()
+    t = threading.Thread(target=_do_update, args=(hist_csv, dates), daemon=True)
+    t.start()
+    return redirect("/")
+
+
+# ── CLI エントリーポイント（直接実行時） ──────────────────────
+
+def main() -> None:
+    """CLI 用: python yosou.py --cli [--dates ...] [--hist ...] [--log ...]"""
+    parser = argparse.ArgumentParser(
+        description="来週末の全レースに学習適応仮説フラグを判定して表示",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "使用例:\n"
+            "  %(prog)s --cli                         # 来週末（自動）\n"
+            "  %(prog)s --cli --dates 20260613 20260614\n"
+            "  %(prog)s --cli --hist nikatsu_300.csv\n"
+        ),
+    )
+    parser.add_argument("--cli",   action="store_true", help="CLI モードで実行（Flask を起動しない）")
+    parser.add_argument("--dates", nargs="+", metavar="YYYYMMDD",
+                        help="対象日付（省略時: 最も近い土日）")
+    parser.add_argument("--hist",  default=DEFAULT_HIST, metavar="FILE",
+                        help=f"過去実績 CSV (default: {DEFAULT_HIST})")
+    parser.add_argument("--log",   default=DEFAULT_LOG,  metavar="FILE",
+                        help=f"ログ出力先 (default: {DEFAULT_LOG})")
+    parser.add_argument("--html",  default="yosou_result.html", metavar="FILE",
+                        help="HTML レポート出力先 (default: yosou_result.html)")
+    args = parser.parse_args()
+
+    if not args.cli:
+        # CLI フラグなし → Flask 起動
+        port = int(os.environ.get("PORT", 5000))
+        print(f"Flask サーバー起動: http://0.0.0.0:{port}", file=sys.stderr)
+        app.run(host="0.0.0.0", port=port, debug=False)
+        return
+
+    dates = args.dates if args.dates else next_weekend_dates()
+    print(f"対象日付: {', '.join(dates)}", file=sys.stderr)
+
+    hist_rates, total_hist = load_hist_rates(args.hist)
+    print(f"  {total_hist} レース分のデータを読み込みました", file=sys.stderr)
+
+    all_race_ids: List[str] = []
+    print("レース一覧を取得中 ...", file=sys.stderr)
+    for d in dates:
+        all_race_ids.extend(fetch_race_ids_for_date(d))
+
+    if not all_race_ids:
+        print("エラー: レース情報を取得できませんでした", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"対象レース: {len(all_race_ids)} レース", file=sys.stderr)
+
+    races_by_class: Dict[str, List[Dict]] = defaultdict(list)
+    total_horses = 0
+
+    for i, race_id in enumerate(all_race_ids, 1):
+        print(f"\n[{i}/{len(all_race_ids)}] {race_id} ({race_label(race_id)}) 処理中 ...",
+              file=sys.stderr)
+        result = fetch_shutuba(race_id)
+        if result is None:
+            print("  スキップ（出馬表取得失敗）", file=sys.stderr)
+            continue
+        race_title, race_date, horses = result
+        if not horses:
+            print("  スキップ（出走馬なし）", file=sys.stderr)
+            continue
+        print(f"  {race_title}  ({race_date})  {len(horses)}頭", file=sys.stderr)
+        horses = add_prediction_flags(horses, race_date)
+        cls    = classify(race_title)
+        flagged_n = sum(1 for h in horses if h["仮説フラグ"])
+        print(f"  フラグあり: {flagged_n}頭 / {len(horses)}頭", file=sys.stderr)
+        sys.stderr.flush()
+        races_by_class[cls].append({
+            "race_id":    race_id,
+            "race_title": race_title,
+            "race_date":  race_date,
+            "horses":     horses,
+        })
+        total_horses += len(horses)
+
+    print(f"\n取得完了: {sum(len(v) for v in races_by_class.values())} レース / "
+          f"{total_horses} 頭", file=sys.stderr)
+
+    print_report(races_by_class, hist_rates, dates, args.hist, total_hist)
+    save_log(races_by_class, args.log)
+    generate_html_report(
+        races_by_class, hist_rates, dates, args.hist, total_hist,
+        filepath=args.html,
+    )
+
+
+if __name__ == "__main__":
+    main()
 
 def main() -> None:
     parser = argparse.ArgumentParser(
