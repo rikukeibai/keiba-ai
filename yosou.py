@@ -34,7 +34,7 @@ from netkeiba_scraper import (
     last3f_rank,
 )
 
-DEFAULT_HIST = "2026_multi.csv"
+DEFAULT_HIST = "all_data.csv"
 DEFAULT_LOG  = "yosou_log.csv"
 
 CLASS_ORDER = [
