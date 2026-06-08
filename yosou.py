@@ -4,7 +4,7 @@
 過去の回収率実績は指定 CSV から自動計算
 
 使い方:
-  python3 yosou.py                              # 来週末, 2026_multi.csv 参照
+  python3 yosou.py                              # 来週末, all_data.csv 参照
   python3 yosou.py --dates 20260613 20260614    # 日付を直接指定
   python3 yosou.py --hist nikatsu_300.csv       # 参照 CSV を変更
   python3 yosou.py --log yosou_log.csv          # ログ出力先を変更
