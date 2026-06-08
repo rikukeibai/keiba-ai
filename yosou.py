@@ -912,7 +912,7 @@ def generate_html_report(
 # ── 説明ページ生成 ───────────────────────────────────────────
 
 def build_about_page() -> str:
-    """説明ページの HTML を生成"""
+    """説明ページの HTML を生成（佐々木理論版）"""
 
     css = (
         "*{box-sizing:border-box;margin:0;padding:0;"
@@ -931,61 +931,70 @@ def build_about_page() -> str:
         ".nav-update{background:#534AB7!important;color:#fff!important;font-weight:500}"
         ".nav-update:hover{background:#3C3489!important}"
         ".app{max-width:860px;margin:0 auto;padding:40px 16px 60px}"
-        # hero
-        ".hero{margin-bottom:48px}"
-        ".hero-label{font-size:11px;font-weight:600;letter-spacing:.08em;"
-        "color:#534AB7;text-transform:uppercase;margin-bottom:10px}"
-        ".hero-title{font-size:28px;font-weight:600;line-height:1.3;margin-bottom:14px}"
-        ".hero-sub{font-size:15px;color:#555;max-width:560px;line-height:1.8}"
-        # sections
-        ".section{margin-bottom:40px}"
-        ".section-num{display:inline-block;width:28px;height:28px;border-radius:50%;"
-        "background:#534AB7;color:#fff;font-size:12px;font-weight:700;"
-        "text-align:center;line-height:28px;flex-shrink:0;margin-top:3px}"
-        ".section-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px}"
-        ".section-title{font-size:18px;font-weight:600;line-height:1.4}"
-        ".section-body{padding-left:40px}"
-        ".section-body p{color:#333;margin-bottom:12px}"
+        # section
+        ".section{margin-bottom:48px}"
+        ".section-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}"
+        ".section-num{display:inline-flex;align-items:center;justify-content:center;"
+        "width:30px;height:30px;border-radius:50%;background:#534AB7;color:#fff;"
+        "font-size:13px;font-weight:700;flex-shrink:0;margin-top:2px}"
+        ".section-title{font-size:20px;font-weight:600;line-height:1.4;color:#1a1a18}"
+        ".section-body{padding-left:44px}"
+        ".section-body p{color:#333;margin-bottom:14px;font-size:14px;line-height:1.8}"
         ".section-body p:last-child{margin-bottom:0}"
-        # card inside section
-        ".inner-card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
-        "padding:20px 24px;margin-bottom:16px}"
-        ".inner-card:last-child{margin-bottom:0}"
-        ".inner-card-title{font-size:13px;font-weight:600;color:#534AB7;margin-bottom:10px}"
-        # hypothesis box
+        # lead text
+        ".lead{font-size:15px;color:#1a1a18;line-height:1.9;margin-bottom:20px}"
+        # quote box
+        ".quote-box{border-left:3px solid #534AB7;padding:14px 20px;"
+        "background:#F4F3FE;border-radius:0 8px 8px 0;margin-bottom:20px}"
+        ".quote-box p{font-size:14px;color:#2a2a28;line-height:1.8;margin:0}"
+        ".quote-box strong{color:#534AB7}"
+        # layer diagram
+        ".layer-diagram{display:flex;flex-direction:column;gap:6px;margin:20px 0}"
+        ".layer{display:flex;align-items:center;gap:14px;background:#fff;"
+        "border:1px solid #e8e8e4;border-radius:10px;padding:12px 16px}"
+        ".layer-num{font-size:10px;font-weight:700;color:#888;width:38px;"
+        "flex-shrink:0;text-transform:uppercase;letter-spacing:.04em}"
+        ".layer-name{font-size:14px;font-weight:600;color:#534AB7;width:90px;flex-shrink:0}"
+        ".layer-desc{font-size:13px;color:#555;line-height:1.5}"
+        ".layer-arrow{text-align:center;color:#c9c5e8;font-size:16px;margin:0 0 0 52px}"
+        # hypo box
         ".hypo-box{background:#F4F3FE;border:1px solid #c9c5e8;border-radius:12px;"
-        "padding:20px 24px;margin-bottom:16px}"
-        ".hypo-cond{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}"
+        "padding:22px 26px;margin-bottom:20px}"
+        ".hypo-statement{font-size:15px;font-weight:500;color:#1a1a18;line-height:1.8;"
+        "margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid #c9c5e8}"
+        ".hypo-cond{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}"
         ".hypo-cond:last-child{margin-bottom:0}"
-        ".cond-num{display:inline-block;width:22px;height:22px;border-radius:50%;"
-        "background:#534AB7;color:#fff;font-size:11px;font-weight:700;"
-        "text-align:center;line-height:22px;flex-shrink:0;margin-top:2px}"
-        ".cond-text{font-size:14px;color:#1a1a18;line-height:1.6}"
-        ".cond-text strong{color:#534AB7}"
-        # why box
-        ".why-item{display:flex;gap:14px;margin-bottom:14px;align-items:flex-start}"
-        ".why-item:last-child{margin-bottom:0}"
-        ".why-icon{font-size:18px;flex-shrink:0;width:26px;text-align:center;margin-top:1px}"
-        ".why-text{font-size:14px;color:#333;line-height:1.7}"
-        ".why-text strong{color:#1a1a18;font-weight:600}"
+        ".cond-chip{background:#534AB7;color:#fff;font-size:11px;font-weight:700;"
+        "padding:3px 9px;border-radius:6px;flex-shrink:0;margin-top:3px;"
+        "white-space:nowrap}"
+        ".cond-text{font-size:14px;color:#2a2a28;line-height:1.7}"
+        ".cond-sub{font-size:12px;color:#888;margin-top:3px}"
+        # logic chain
+        ".logic-chain{display:flex;flex-direction:column;gap:0;margin-bottom:20px}"
+        ".logic-item{display:flex;gap:14px;padding:14px 18px;background:#fff;"
+        "border:1px solid #e8e8e4;align-items:flex-start}"
+        ".logic-item:first-child{border-radius:10px 10px 0 0}"
+        ".logic-item:last-child{border-radius:0 0 10px 10px;border-top:none}"
+        ".logic-item:only-child{border-radius:10px}"
+        ".logic-connector{border-top:none;border-left:none;border-right:none;display:flex;"
+        "align-items:center;padding:0 18px 0 32px;background:#f5f5f0;"
+        "border-left:1px solid #e8e8e4;border-right:1px solid #e8e8e4;"
+        "height:30px;font-size:12px;color:#534AB7;font-weight:600}"
+        ".logic-icon{font-size:18px;flex-shrink:0;width:28px;text-align:center;margin-top:1px}"
+        ".logic-text{font-size:14px;color:#1a1a18;line-height:1.7}"
+        ".logic-text strong{font-weight:600}"
+        ".logic-text .sub{font-size:12px;color:#888;margin-top:3px;display:block}"
         # disclaimer
         ".disclaimer{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
-        "padding:20px 24px}"
-        ".disclaimer-title{font-size:12px;font-weight:600;color:#888;letter-spacing:.06em;"
+        "padding:22px 26px}"
+        ".disclaimer-label{font-size:11px;font-weight:600;color:#888;letter-spacing:.06em;"
         "text-transform:uppercase;margin-bottom:12px}"
         ".disclaimer p{font-size:13px;color:#666;line-height:1.8;margin-bottom:8px}"
         ".disclaimer p:last-child{margin-bottom:0}"
         # divider
-        ".divider{border:none;border-top:1px solid #e8e8e4;margin:40px 0}"
-        # tag
-        ".tag{display:inline-block;font-size:11px;font-weight:500;padding:3px 9px;"
-        "border-radius:6px;background:#EEEDFE;color:#534AB7;margin-right:6px;margin-bottom:6px}"
-        ".tag-green{background:#E1F5EE;color:#0F6E56}"
-        ".rate-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:6px;"
-        "display:inline-block;margin-right:4px}"
-        ".rate-hi{background:#E1F5EE;color:#0F6E56}"
-        "@media(max-width:640px){.hero-title{font-size:22px}.section-body{padding-left:0}"
-        ".section-head{flex-wrap:wrap}}"
+        ".divider{border:none;border-top:1px solid #e8e8e4;margin:48px 0}"
+        "@media(max-width:640px){.section-body{padding-left:0}"
+        ".layer{flex-wrap:wrap}.layer-name{width:auto}}"
     )
 
     return f"""<!DOCTYPE html>
@@ -1012,118 +1021,128 @@ def build_about_page() -> str:
 
 <div class="app">
 
-  <!-- ヒーロー -->
-  <div class="hero">
-    <div class="hero-label">About this tool</div>
-    <h1 class="hero-title">競馬の暗黙知を<br>数値化する試み</h1>
-    <p class="hero-sub">
-      このツールは「記号創発システム論」という認知科学の理論を競馬に応用し、
-      馬が<strong>「競馬を覚えた」瞬間</strong>を統計的に捉えようとする実験的な予想システムです。
-    </p>
-  </div>
-
-  <!-- 1. この予想AIとは -->
+  <!-- 1. このAIとは -->
   <div class="section">
     <div class="section-head">
       <span class="section-num">1</span>
-      <h2 class="section-title">この予想AIとは何か</h2>
+      <h2 class="section-title">このAIとは</h2>
     </div>
     <div class="section-body">
-      <div class="inner-card">
-        <div class="inner-card-title">記号創発システム論から生まれた</div>
+      <p class="lead">
+        競馬予想家は長年の経験から「この馬がきやすい」という暗黙知を持っている。
+        その暗黙知はオッズという形で市場に集約される。
+        つまり<strong>オッズは市場参加者全員の集合的な暗黙知の結晶</strong>である。
+      </p>
+      <div class="quote-box">
         <p>
-          記号創発システム論とは、言語や概念が環境との相互作用を通じて自律的に生まれる
-          プロセスを記述する理論です。競走馬もまたレースを経験するなかで
-          「どう走ればよいか」という暗黙的な知識を身につけると考えます。
-        </p>
-        <p>
-          このツールはその「学習の瞬間」を、レース結果のデータから検出しようとするものです。
+          しかしその市場の暗黙知は完全ではなく、<strong>特定のパターンを見落としている</strong>。
+          このAIはその見落としを発見するための研究ツールである。
         </p>
       </div>
-      <div class="inner-card">
-        <div class="inner-card-title">競馬の暗黙知を数値化する</div>
-        <p>
-          熟練した調教師や騎手は「この馬はそろそろ走る」という直感を持ちます。
-          その直感の一部は言語化・数値化できる可能性があります。
-          前走のコーナー通過順と上がり3Fタイムはその候補です。
-        </p>
-        <span class="tag">記号創発システム論</span>
-        <span class="tag">暗黙知</span>
-        <span class="tag tag-green">データ駆動</span>
-      </div>
+      <p>
+        市場が効率的であれば、どんな馬券を買っても回収率は均一になるはずだ。
+        しかし実際には特定の条件を持つ馬群で回収率の偏りが生じる。
+        その偏りこそが「市場の盲点」であり、本ツールが探索する対象である。
+      </p>
     </div>
   </div>
 
   <hr class="divider">
 
-  <!-- 2. 学習適応仮説とは -->
+  <!-- 2. 記号創発システム論とは -->
   <div class="section">
     <div class="section-head">
       <span class="section-num">2</span>
-      <h2 class="section-title">学習適応仮説とは</h2>
+      <h2 class="section-title">記号創発システム論とは</h2>
     </div>
     <div class="section-body">
-      <p style="margin-bottom:16px;color:#555">
-        以下の2条件を<strong>両方</strong>満たす馬を「学習フラグあり」と判定します。
-        これらの馬は<em>競馬を覚えた可能性が高く</em>、次走で好走しやすいと仮説を立てています。
+      <p>
+        谷口忠大らが提唱する理論。感覚・身体経験から始まり、
+        カテゴリ化を経て記号（言語・数値）へと知識が創発されるプロセスを記述する。
       </p>
-      <div class="hypo-box">
-        <div class="hypo-cond">
-          <span class="cond-num">1</span>
-          <div class="cond-text">
-            <strong>前走のコーナー通過順位が途中で下がった</strong><br>
-            例：2→3→5→6（後退あり） ✓　／　5→4→3→2（前進のみ） ✗
-          </div>
+      <div class="layer-diagram">
+        <div class="layer">
+          <span class="layer-num">Layer 3</span>
+          <span class="layer-name">記号層</span>
+          <span class="layer-desc">オッズに変換される ― 市場参加者の集合知が数値として現れる</span>
         </div>
-        <div class="hypo-cond">
-          <span class="cond-num">2</span>
-          <div class="cond-text">
-            <strong>前走の上がり3Fが前走メンバー内3位以内だった</strong><br>
-            同じレースに出走した馬の中で、最後の600mが速かった馬
-          </div>
+        <div class="layer-arrow">↑</div>
+        <div class="layer">
+          <span class="layer-num">Layer 2</span>
+          <span class="layer-name">カテゴリ層</span>
+          <span class="layer-desc">評価する ― 「この馬は強い」「今日は調子が悪そう」という判断</span>
+        </div>
+        <div class="layer-arrow">↑</div>
+        <div class="layer">
+          <span class="layer-num">Layer 1</span>
+          <span class="layer-name">感覚層</span>
+          <span class="layer-desc">馬を見る ― パドック、レース映像、過去成績から受け取る印象</span>
         </div>
       </div>
-      <p style="color:#555;font-size:13px">
-        ※ 判定はすべて<strong>前走</strong>のデータに基づきます。
-        出馬表が公開されたタイミング（通常レース前日〜木曜）に取得・更新されます。
+      <p>
+        馬券購入者はタイムだけでなく、過去の経験から蓄積した感覚でオッズを形成している。
+        その集合知が市場価格になるが、<strong>その知識には必ず盲点がある</strong>。
+        記号層（オッズ）だけを見ていても盲点は見つからない。
+        感覚層・カテゴリ層に遡ることで、市場が見落としているパターンが浮かび上がる。
+        このAIはその盲点を突く。
       </p>
     </div>
   </div>
 
   <hr class="divider">
 
-  <!-- 3. なぜこの条件なのか -->
+  <!-- 3. 学習適応仮説（佐々木理論） -->
   <div class="section">
     <div class="section-head">
       <span class="section-num">3</span>
-      <h2 class="section-title">なぜこの条件なのか</h2>
+      <h2 class="section-title">学習適応仮説（佐々木理論）</h2>
     </div>
     <div class="section-body">
-      <div class="inner-card">
-        <div class="why-item">
-          <div class="why-icon">📉</div>
-          <div class="why-text">
-            <strong>単に順位を下げた馬は弱い可能性がある</strong><br>
-            コーナーで後退するだけでは、単なる実力不足や不利を示しているだけかもしれません。
-            それだけでは何も言えません。
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        このAIの作者が提唱する独自理論
+      </p>
+      <div class="hypo-box">
+        <div class="hypo-statement">
+          前走でコーナー順位を下げた、かつ前走メンバー内で上がり3F 3位以内だった馬は、
+          意図的に末脚を温存して競馬を覚えた可能性が高く、次走で好走しやすい。
+        </div>
+        <div class="hypo-cond">
+          <span class="cond-chip">条件 1</span>
+          <div class="cond-text">
+            前走のコーナー通過順位が途中で下がった
+            <div class="cond-sub">例: 2→3→5→6（後退あり）✓　／　5→4→3→2（前進のみ）✗</div>
           </div>
         </div>
-        <div class="why-item">
-          <div class="why-icon">⚡</div>
-          <div class="why-text">
-            <strong>しかし上がりが速ければ末脚を温存した証拠</strong><br>
-            一方で上がり3Fがメンバー内3位以内なら、後退は「負け」ではなく
-            「末脚のためにエネルギーを溜めた」行動だった可能性があります。
+        <div class="hypo-cond">
+          <span class="cond-chip">条件 2</span>
+          <div class="cond-text">
+            前走の上がり3F が前走メンバー内 3位以内だった
+            <div class="cond-sub">同レース出走馬の中で最後の 600m が速かった馬</div>
           </div>
         </div>
-        <div class="why-item">
-          <div class="why-icon">🧠</div>
-          <div class="why-text">
-            <strong>これが暗黙知として機能する</strong><br>
-            競走馬はレースを繰り返すなかで「前半に位置を下げて末脚を爆発させる」
-            という走り方を覚えます。この行動パターンが確立された馬は、次走で
-            同じ戦略をより洗練された形で実行できると考えます。
-            これが「競馬を覚えた」状態であり、本仮説が検出しようとする現象です。
+      </div>
+      <div class="logic-chain">
+        <div class="logic-item">
+          <span class="logic-icon">📉</span>
+          <div class="logic-text">
+            <strong>単にコーナーで順位を下げただけの弱い馬は上がりも遅い。</strong>
+            <span class="sub">実力不足・展開の不利・騎乗ミス ― 理由は様々だが、いずれにせよ末脚も鈍い。</span>
+          </div>
+        </div>
+        <div class="logic-connector">↓ しかし</div>
+        <div class="logic-item">
+          <span class="logic-icon">⚡</span>
+          <div class="logic-text">
+            <strong>上がりが速ければ「下げたのではなく、溜めた」証拠である。</strong>
+            <span class="sub">末脚がメンバー内 3 位以内なら、後退は敗因ではなく戦略的な温存だった可能性が高い。</span>
+          </div>
+        </div>
+        <div class="logic-connector">↓ そして</div>
+        <div class="logic-item">
+          <span class="logic-icon">🧠</span>
+          <div class="logic-text">
+            <strong>市場はこのパターンを過小評価しているためオッズが高めになりやすく、回収率の向上が期待できる。</strong>
+            <span class="sub">「コーナーで負けた馬」という印象から市場が過小評価する。これが記号創発の盲点である。</span>
           </div>
         </div>
       </div>
@@ -1140,17 +1159,14 @@ def build_about_page() -> str:
     </div>
     <div class="section-body">
       <div class="disclaimer">
-        <div class="disclaimer-title">Disclaimer</div>
+        <div class="disclaimer-label">Disclaimer</div>
         <p>
-          本ツールは<strong>研究・学習目的</strong>で作成されたものです。
+          これは<strong>研究目的のツール</strong>です。
           競馬の予想結果を保証するものではありません。
         </p>
         <p>
-          馬券の購入・投資判断はご自身の判断と責任のもとで行ってください。
-          本ツールの利用によって生じたいかなる損失についても、開発者は責任を負いません。
-        </p>
-        <p>
-          競馬はギャンブルです。ご利用は適切な範囲でお願いします。
+          投資判断はご自身の責任でお願いします。
+          本ツールの利用によって生じた損失について、開発者は一切の責任を負いません。
         </p>
       </div>
     </div>
