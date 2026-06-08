@@ -593,8 +593,20 @@ def generate_html_report(
     css = (
         "*{box-sizing:border-box;margin:0;padding:0;"
         "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}"
-        "body{background:#f5f5f0;padding:20px 16px;color:#1a1a18;font-size:13px;line-height:1.5}"
-        ".app{max-width:980px;margin:0 auto}"
+        "body{background:#f5f5f0;padding:0;color:#1a1a18;font-size:13px;line-height:1.5}"
+        "nav{background:#fff;border-bottom:1px solid #e8e8e4;padding:0 16px;"
+        "position:sticky;top:0;z-index:100}"
+        ".nav-inner{max-width:980px;margin:0 auto;display:flex;align-items:center;"
+        "height:44px;gap:12px}"
+        ".nav-brand{font-size:13px;font-weight:600;color:#534AB7}"
+        ".nav-links{display:flex;gap:4px;margin-left:auto}"
+        ".nav-link{padding:5px 12px;border-radius:6px;text-decoration:none;"
+        "font-size:13px;color:#555;white-space:nowrap}"
+        ".nav-link:hover{background:#f5f5f0;color:#1a1a18}"
+        ".nav-link.active{background:#EEEDFE;color:#534AB7;font-weight:500}"
+        ".nav-update{background:#534AB7!important;color:#fff!important;font-weight:500}"
+        ".nav-update:hover{background:#3C3489!important}"
+        ".app{max-width:980px;margin:0 auto;padding:20px 16px}"
         "h1{font-size:18px;font-weight:500;margin-bottom:4px}"
         "h2{font-size:14px;font-weight:600;margin-bottom:12px;color:#534AB7}"
         ".subtitle{font-size:12px;color:#888;margin-bottom:20px}"
@@ -831,6 +843,16 @@ def generate_html_report(
 <style>{css}</style>
 </head>
 <body>
+<nav>
+  <div class="nav-inner">
+    <span class="nav-brand">学習適応仮説</span>
+    <div class="nav-links">
+      <a href="/" class="nav-link active">予想</a>
+      <a href="/history" class="nav-link">過去結果</a>
+      <a href="/update" class="nav-link nav-update">更新</a>
+    </div>
+  </div>
+</nav>
 <div class="app">
 
 <h1>学習適応仮説 予想レポート<span class="ver-badge">{today_str} 生成</span></h1>
@@ -884,6 +906,451 @@ def generate_html_report(
             f.write(html)
         print(f"HTML レポート生成完了: {filepath}", file=sys.stderr)
     return html
+
+
+# ── 過去結果ページ生成 ────────────────────────────────────────
+
+def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
+    """過去結果ページの HTML を生成（クラス別回収率 + レース一覧）"""
+    import csv as _csv_mod
+    from collections import defaultdict as _dd
+
+    e = _html.escape
+
+    def pct(r: int, i: int) -> str:
+        return f"{r / i * 100:.1f}%" if i else "---"
+
+    def rc(s: str) -> str:
+        if s == "---": return "rate-na"
+        try:
+            v = float(s.rstrip("%"))
+            return "rate-hi" if v >= 100 else "rate-mid" if v >= 80 else "rate-lo"
+        except ValueError:
+            return "rate-na"
+
+    # ── データ読み込み ───────────────────────────────────
+    try:
+        with open(csv_path, encoding="utf-8-sig") as f:
+            rows = list(_csv_mod.DictReader(f))
+    except FileNotFoundError:
+        return _error_page(f"データファイルが見つかりません: {csv_path}")
+    if not rows:
+        return _error_page("データがありません")
+
+    has_fuku = "複勝配当" in rows[0]
+
+    race_groups: Dict[str, list] = _dd(list)
+    for r in rows:
+        race_groups[r["race_id"]].append(r)
+
+    # ── クラス別集計 ─────────────────────────────────────
+    class_stats: Dict[str, dict] = {}
+    class_races:  Dict[str, list] = _dd(list)
+
+    for race_id, horses in sorted(race_groups.items()):
+        cls = classify(horses[0]["race_title"])
+        if cls not in class_stats:
+            class_stats[cls] = dict(
+                on_tan_i=0, on_tan_r=0, off_tan_i=0, off_tan_r=0,
+                on_fk_i=0,  on_fk_r=0,  off_fk_i=0,  off_fk_r=0,
+                on_count=0, off_count=0, race_count=0, tan_hits_on=0,
+            )
+        d = class_stats[cls]
+        d["race_count"] += 1
+
+        winner  = next((h for h in horses if h.get("着順") == "1"), None)
+        on_grp  = [h for h in horses if h.get("仮説フラグ") == "True"]
+        off_grp = [h for h in horses if h.get("仮説フラグ") == "False"]
+        d["on_count"]  += len(on_grp)
+        d["off_count"] += len(off_grp)
+
+        tan_hit_on = bool(winner and winner.get("仮説フラグ") == "True")
+        if tan_hit_on:
+            d["tan_hits_on"] += 1
+
+        for grp, pfx, flag_str in [(on_grp, "on", "True"), (off_grp, "off", "False")]:
+            if not grp:
+                continue
+            inv = len(grp) * 100
+            d[f"{pfx}_tan_i"] += inv
+            if winner and winner.get("仮説フラグ") == flag_str:
+                try:
+                    d[f"{pfx}_tan_r"] += round(float(winner["単勝オッズ"]) * 100)
+                except (ValueError, TypeError):
+                    pass
+            if has_fuku:
+                d[f"{pfx}_fk_i"] += inv
+                for h in grp:
+                    try:
+                        d[f"{pfx}_fk_r"] += int(h.get("複勝配当", 0) or 0)
+                    except (ValueError, TypeError):
+                        pass
+
+        def _sort_key(h: dict) -> int:
+            o = h.get("着順", "99")
+            return int(o) if str(o).isdigit() else 99
+
+        class_races[cls].append({
+            "race_id":    race_id,
+            "race_title": horses[0]["race_title"],
+            "race_date":  horses[0]["race_date"],
+            "on_count":   len(on_grp),
+            "tan_hit_on": tan_hit_on,
+            "horses":     sorted(horses, key=_sort_key),
+        })
+
+    # ── 集計サマリー ─────────────────────────────────────
+    total_races    = len(race_groups)
+    total_horses   = len(rows)
+    total_on       = sum(d["on_count"]     for d in class_stats.values())
+    total_tan_hits = sum(d["tan_hits_on"]  for d in class_stats.values())
+    on_pct = f"{total_on / total_horses * 100:.1f}" if total_horses else "0"
+
+    # ── 全クラス合算回収率 ─────────────────────────────
+    all_on_ti = sum(d["on_tan_i"]  for d in class_stats.values())
+    all_on_tr = sum(d["on_tan_r"]  for d in class_stats.values())
+    all_off_ti = sum(d["off_tan_i"] for d in class_stats.values())
+    all_off_tr = sum(d["off_tan_r"] for d in class_stats.values())
+    global_on_tan  = pct(all_on_tr,  all_on_ti)
+    global_off_tan = pct(all_off_tr, all_off_ti)
+
+    # ── CSS ─────────────────────────────────────────────
+    css = (
+        "*{box-sizing:border-box;margin:0;padding:0;"
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}"
+        "body{background:#f5f5f0;padding:0;color:#1a1a18;font-size:13px;line-height:1.5}"
+        "nav{background:#fff;border-bottom:1px solid #e8e8e4;padding:0 16px;"
+        "position:sticky;top:0;z-index:100}"
+        ".nav-inner{max-width:980px;margin:0 auto;display:flex;align-items:center;"
+        "height:44px;gap:12px}"
+        ".nav-brand{font-size:13px;font-weight:600;color:#534AB7}"
+        ".nav-links{display:flex;gap:4px;margin-left:auto}"
+        ".nav-link{padding:5px 12px;border-radius:6px;text-decoration:none;"
+        "font-size:13px;color:#555;white-space:nowrap}"
+        ".nav-link:hover{background:#f5f5f0;color:#1a1a18}"
+        ".nav-link.active{background:#EEEDFE;color:#534AB7;font-weight:500}"
+        ".nav-update{background:#534AB7!important;color:#fff!important;font-weight:500}"
+        ".nav-update:hover{background:#3C3489!important}"
+        ".app{max-width:980px;margin:0 auto;padding:20px 16px}"
+        "h1{font-size:18px;font-weight:500;margin-bottom:4px}"
+        "h2{font-size:14px;font-weight:600;margin-bottom:12px;color:#534AB7}"
+        ".subtitle{font-size:12px;color:#888;margin-bottom:20px}"
+        ".ver-badge{display:inline-block;font-size:10px;padding:2px 8px;"
+        "background:#EEEDFE;color:#534AB7;border-radius:6px;margin-left:8px;vertical-align:middle}"
+        ".metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}"
+        ".metric{background:#fff;border:1px solid #e8e8e4;border-radius:10px;padding:12px 14px}"
+        ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
+        ".metric-val{font-size:22px;font-weight:500}"
+        ".metric-sub{font-size:11px;color:#aaa;margin-top:2px}"
+        ".card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
+        "padding:16px 20px;margin-bottom:16px}"
+        ".rate-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:6px;"
+        "display:inline-block;margin-right:4px;white-space:nowrap}"
+        ".rate-hi{background:#E1F5EE;color:#0F6E56}"
+        ".rate-mid{background:#FFF8E1;color:#B07800}"
+        ".rate-lo{background:#FDECEA;color:#C13A2A}"
+        ".rate-na{background:#f1efe8;color:#aaa}"
+        ".divider{border:none;border-top:1px solid #e8e8e4;margin:20px 0}"
+        ".class-section{margin-bottom:20px}"
+        ".class-header{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}"
+        ".class-name{font-size:15px;font-weight:600}"
+        ".race-cnt{font-size:12px;color:#888;background:#f5f5f0;padding:2px 8px;border-radius:8px}"
+        # stat table
+        ".stbl{width:100%;border-collapse:collapse}"
+        ".stbl th{font-size:11px;color:#888;font-weight:500;padding:7px 12px;"
+        "border-bottom:2px solid #e8e8e4;white-space:nowrap;background:#fafaf7}"
+        ".stbl th.r,.stbl td.r{text-align:right}"
+        ".stbl td{padding:8px 12px;border-bottom:1px solid #f5f5f0;vertical-align:middle}"
+        ".stbl tr:last-child td{border-bottom:none}"
+        ".stbl tr:hover td{background:#fafaf8}"
+        ".stbl tr.total-row td{border-top:2px solid #e8e8e4;font-weight:600;"
+        "background:#fafaf7}"
+        ".stbl .grp-hi{background:#e9f8f0;font-size:10px;padding:1px 6px;"
+        "border-radius:4px;color:#0F6E56;font-weight:600}"
+        ".stbl .grp-lo{background:#f5f5f0;font-size:10px;padding:1px 6px;"
+        "border-radius:4px;color:#888}"
+        # accordion
+        "details{background:#fff;border:1px solid #e8e8e4;border-radius:10px;"
+        "margin-bottom:6px;overflow:hidden}"
+        "details[open]{border-color:#c9c5e8}"
+        "summary{padding:10px 14px;cursor:pointer;list-style:none;display:flex;"
+        "align-items:center;gap:10px;user-select:none;background:#fafaf7}"
+        "summary::-webkit-details-marker{display:none}"
+        "details[open]>summary{background:#F4F3FE;border-bottom:1px solid #e8e8e4}"
+        "summary:hover{background:#f0eff9}"
+        ".chevron{font-size:10px;color:#bbb;transition:transform .15s;flex-shrink:0;"
+        "margin-right:2px}"
+        "details[open] .chevron{transform:rotate(90deg)}"
+        ".rv{font-size:12px;font-weight:700;color:#534AB7}"
+        ".rt{font-size:13px;font-weight:500}"
+        ".rd{font-size:11px;color:#888}"
+        ".rmeta{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}"
+        ".on-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;"
+        "background:#E1F5EE;color:#0F6E56}"
+        ".win-flag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;"
+        "background:#FFF8E1;color:#B07800}"
+        # result horse table
+        ".htable{width:100%;border-collapse:collapse}"
+        ".htable th{font-size:11px;color:#888;font-weight:500;padding:6px 10px;"
+        "text-align:left;border-bottom:1px solid #f0f0ec;background:#fafaf7;white-space:nowrap}"
+        ".htable th.r,.htable td.r{text-align:right}"
+        ".htable td{padding:7px 10px;border-bottom:1px solid #f5f5f0;vertical-align:middle}"
+        ".htable tr:last-child td{border-bottom:none}"
+        ".rank-circle{width:24px;height:24px;border-radius:50%;display:inline-flex;"
+        "align-items:center;justify-content:center;font-size:11px;font-weight:600;"
+        "background:#EEEDFE;color:#3C3489;flex-shrink:0}"
+        ".rank-win{background:#FFE082;color:#7A5800}"
+        ".mono{font-family:ui-monospace,monospace;font-size:12px}"
+        ".flag-badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:8px;"
+        "display:inline-block;white-space:nowrap}"
+        ".flag-on{background:#E1F5EE;color:#0F6E56}"
+        ".flag-off{background:#f1efe8;color:#bbb}"
+        ".tr-win{background:#FFFBEB}"
+        ".tr-flag{background:#F7FFFC}"
+        ".tr-winflag{background:#DFFBEE}"
+        ".empty-note{text-align:center;padding:32px;color:#aaa;font-size:12px;"
+        "background:#fff;border:1px solid #e8e8e4;border-radius:10px}"
+        "@media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr)}"
+        ".rmeta{display:none}"
+        ".stbl th:nth-child(n+4),.stbl td:nth-child(n+4){display:none}}"
+    )
+
+    # ── クラス別集計テーブル ─────────────────────────────
+    stat_rows = ""
+    tot = dict(on_ti=0, on_tr=0, off_ti=0, off_tr=0,
+               on_fi=0, on_fr=0, off_fi=0, off_fr=0,
+               on_c=0, off_c=0)
+
+    for cls in CLASS_ORDER:
+        d = class_stats.get(cls)
+        if not d:
+            continue
+        on_t  = pct(d["on_tan_r"],  d["on_tan_i"])
+        off_t = pct(d["off_tan_r"], d["off_tan_i"])
+        on_f  = pct(d["on_fk_r"],   d["on_fk_i"])  if has_fuku else "---"
+        off_f = pct(d["off_fk_r"],  d["off_fk_i"]) if has_fuku else "---"
+        stat_rows += (
+            f'<tr>'
+            f'<td>{e(cls)}</td>'
+            f'<td class="r">{d["race_count"]}</td>'
+            f'<td class="r">{d["on_count"]}</td>'
+            f'<td class="r"><span class="rate-badge {rc(on_t)}">{on_t}</span></td>'
+            f'<td class="r"><span class="rate-badge {rc(on_f)}">{on_f}</span></td>'
+            f'<td class="r">{d["off_count"]}</td>'
+            f'<td class="r"><span class="rate-badge {rc(off_t)}">{off_t}</span></td>'
+            f'<td class="r"><span class="rate-badge {rc(off_f)}">{off_f}</span></td>'
+            f'</tr>'
+        )
+        tot["on_c"]  += d["on_count"]
+        tot["off_c"] += d["off_count"]
+        for k in ("on_ti","on_tr","off_ti","off_tr"):
+            tot[k] += d[f"{k.replace('ti','tan_i').replace('tr','tan_r')}"]
+        if has_fuku:
+            for k in ("on_fi","on_fr","off_fi","off_fr"):
+                tot[k] += d[f"{k.replace('fi','fk_i').replace('fr','fk_r')}"]
+
+    tot_on_t  = pct(tot["on_tr"],  tot["on_ti"])
+    tot_off_t = pct(tot["off_tr"], tot["off_ti"])
+    tot_on_f  = pct(tot["on_fr"],  tot["on_fi"]) if has_fuku else "---"
+    tot_off_f = pct(tot["off_fr"], tot["off_fi"]) if has_fuku else "---"
+    stat_rows += (
+        f'<tr class="total-row">'
+        f'<td>合計</td>'
+        f'<td class="r">{total_races}</td>'
+        f'<td class="r">{tot["on_c"]}</td>'
+        f'<td class="r"><span class="rate-badge {rc(tot_on_t)}">{tot_on_t}</span></td>'
+        f'<td class="r"><span class="rate-badge {rc(tot_on_f)}">{tot_on_f}</span></td>'
+        f'<td class="r">{tot["off_c"]}</td>'
+        f'<td class="r"><span class="rate-badge {rc(tot_off_t)}">{tot_off_t}</span></td>'
+        f'<td class="r"><span class="rate-badge {rc(tot_off_f)}">{tot_off_f}</span></td>'
+        f'</tr>'
+    )
+
+    stat_table = (
+        '<div class="card">'
+        '<h2>クラス別 回収率集計</h2>'
+        '<div style="overflow-x:auto">'
+        '<table class="stbl">'
+        '<thead><tr>'
+        '<th>クラス</th><th class="r">R数</th>'
+        '<th class="r" colspan="3" style="text-align:center;background:#e9f8f0;color:#0F6E56">'
+        '━━ フラグあり ━━</th>'
+        '<th class="r" colspan="3" style="text-align:center;background:#f5f5f0;color:#888">'
+        '━━ フラグなし ━━</th>'
+        '</tr>'
+        '<tr>'
+        '<th></th><th></th>'
+        '<th class="r">頭数</th><th class="r">単勝回収率</th><th class="r">複勝回収率</th>'
+        '<th class="r">頭数</th><th class="r">単勝回収率</th><th class="r">複勝回収率</th>'
+        '</tr></thead>'
+        f'<tbody>{stat_rows}</tbody>'
+        '</table></div></div>'
+    )
+
+    # ── レース一覧（クラス別アコーディオン） ──────────────
+    def result_horse_table(horses: list) -> str:
+        rows = ""
+        for h in horses:
+            flag   = h.get("仮説フラグ") == "True"
+            rank_s = h.get("着順", "")
+            win    = rank_s == "1"
+            if win and flag:
+                tr_cls = ' class="tr-winflag"'
+            elif win:
+                tr_cls = ' class="tr-win"'
+            elif flag:
+                tr_cls = ' class="tr-flag"'
+            else:
+                tr_cls = ""
+            rk_cls  = "rank-win" if win else "rank-circle"
+            badge   = ('<span class="flag-badge flag-on">★ あり</span>'
+                       if flag else '<span class="flag-badge flag-off">なし</span>')
+            num     = e(h.get("馬番", "-") or "-")
+            name    = e(h.get("馬名",   "-"))
+            corner  = e(h.get("コーナー通過順", "---") or "---")
+            f3      = e(h.get("上がり3F",  "---") or "---")
+            odds    = e(h.get("単勝オッズ", "---") or "---")
+            fuku    = e(h.get("複勝配当", "---") or "---") if has_fuku else ""
+            nstyle  = ' style="font-weight:600"' if (win or flag) else ""
+            fuku_td = f'<td class="r mono">{fuku}</td>' if has_fuku else ""
+            rows += (
+                f'<tr{tr_cls}>'
+                f'<td><span class="{rk_cls}">{e(rank_s) or "-"}</span></td>'
+                f'<td class="r">{num}</td>'
+                f'<td{nstyle}>{name}</td>'
+                f'<td class="mono">{corner}</td>'
+                f'<td class="r mono">{f3}</td>'
+                f'<td class="r mono">{odds}</td>'
+                f'{fuku_td}'
+                f'<td>{badge}</td>'
+                f'</tr>'
+            )
+        fuku_th = '<th class="r">複勝配当</th>' if has_fuku else ""
+        return (
+            '<div style="overflow-x:auto">'
+            '<table class="htable">'
+            '<thead><tr>'
+            '<th>着順</th><th class="r">馬番</th><th>馬名</th>'
+            '<th>コーナー</th><th class="r">上がり3F</th>'
+            f'<th class="r">単勝オッズ</th>{fuku_th}<th>フラグ</th>'
+            '</tr></thead>'
+            f'<tbody>{rows}</tbody>'
+            '</table></div>'
+        )
+
+    race_list_html = ""
+    for cls in CLASS_ORDER:
+        races = class_races.get(cls)
+        if not races:
+            continue
+        d = class_stats[cls]
+        on_t  = pct(d["on_tan_r"],  d["on_tan_i"])
+        off_t = pct(d["off_tan_r"], d["off_tan_i"])
+        on_f  = pct(d["on_fk_r"],   d["on_fk_i"])  if has_fuku else "---"
+
+        rate_badges = (
+            f'<span class="rate-badge {rc(on_t)}" style="font-size:11px">あり単勝 {on_t}</span>'
+            f'<span class="rate-badge {rc(on_f)}" style="font-size:11px">あり複勝 {on_f}</span>'
+            f'<span class="rate-badge rate-na" style="font-size:11px">なし単勝 {off_t}</span>'
+        )
+
+        race_details = ""
+        for race in races:
+            lbl   = e(race_label(race["race_id"]))
+            title = e(race["race_title"])
+            rdate = e(race["race_date"])
+            on_n  = race["on_count"]
+            hit   = race["tan_hit_on"]
+
+            on_html  = (f'<span class="on-badge">★ {on_n}頭</span>' if on_n else "")
+            win_html = ('<span class="win-flag">★ 単勝的中</span>' if hit else "")
+
+            race_details += (
+                f'<details>'
+                f'<summary>'
+                f'<span class="chevron">▶</span>'
+                f'<span class="rv">{lbl}</span>'
+                f'<span class="rt">{title}</span>'
+                f'<div class="rmeta">{on_html}{win_html}'
+                f'<span class="rd">{rdate}</span></div>'
+                f'</summary>'
+                f'{result_horse_table(race["horses"])}'
+                f'</details>'
+            )
+
+        race_list_html += (
+            f'<div class="class-section">'
+            f'<div class="class-header">'
+            f'<span class="class-name">{e(cls)}</span>'
+            f'<span class="race-cnt">{len(races)} レース</span>'
+            f'{rate_badges}'
+            f'</div>'
+            f'{race_details}'
+            f'</div>'
+        )
+
+    if not race_list_html:
+        race_list_html = '<div class="empty-note">データがありません</div>'
+
+    # ── 完全 HTML ────────────────────────────────────────
+    today_str = date.today().strftime("%Y/%m/%d")
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>過去結果 — {e(csv_path)}</title>
+<style>{css}</style>
+</head>
+<body>
+<nav>
+  <div class="nav-inner">
+    <span class="nav-brand">学習適応仮説</span>
+    <div class="nav-links">
+      <a href="/" class="nav-link">予想</a>
+      <a href="/history" class="nav-link active">過去結果</a>
+      <a href="/update" class="nav-link nav-update">更新</a>
+    </div>
+  </div>
+</nav>
+<div class="app">
+
+<h1>過去結果<span class="ver-badge">{e(csv_path)}</span></h1>
+<p class="subtitle">{today_str} 閲覧&nbsp;&nbsp;全クラス 単勝回収率: フラグあり
+<span class="rate-badge {rc(global_on_tan)}">{global_on_tan}</span>
+/ フラグなし <span class="rate-badge {rc(global_off_tan)}">{global_off_tan}</span></p>
+
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-label">集計レース数</div>
+    <div class="metric-val">{total_races}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">出走頭数</div>
+    <div class="metric-val">{total_horses}</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">フラグあり</div>
+    <div class="metric-val" style="color:#0F6E56">{total_on}</div>
+    <div class="metric-sub">全体の {on_pct}%</div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">単勝的中（あり）</div>
+    <div class="metric-val" style="color:#534AB7">{total_tan_hits}</div>
+    <div class="metric-sub">{total_races} レース中</div>
+  </div>
+</div>
+
+{stat_table}
+
+<hr class="divider">
+
+<h2>レース一覧</h2>
+{race_list_html}
+
+</div>
+</body>
+</html>"""
 
 
 # ── Flask アプリ ──────────────────────────────────────────────
@@ -1054,6 +1521,12 @@ def index() -> Response:
     if not _html_cache:
         return Response(_nodata_page(), mimetype="text/html")
     return Response(_html_cache, mimetype="text/html")
+
+
+@app.route("/history")
+def history() -> Response:
+    csv_path = os.environ.get("HIST_CSV", DEFAULT_HIST)
+    return Response(build_history_page(csv_path), mimetype="text/html")
 
 
 @app.route("/update")
