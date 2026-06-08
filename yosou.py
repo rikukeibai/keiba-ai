@@ -1283,6 +1283,48 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
     global_on_tan  = pct(all_on_tr,  all_on_ti)
     global_off_tan = pct(all_off_tr, all_off_ti)
 
+    # ── JS データ (フィルター用) ──────────────────────────
+    import json as _json
+    _js_cls: Dict[str, list] = {}
+    for _cls in CLASS_ORDER:
+        _races_raw = class_races.get(_cls)
+        if not _races_raw:
+            continue
+        _js_races = []
+        for _race in _races_raw:
+            _on_h: list = []
+            _off = {"count": 0, "tan_i": 0, "tan_r": 0, "fk_i": 0, "fk_r": 0}
+            for _h in _race["horses"]:
+                _flag = _h.get("仮説フラグ") == "True"
+                _win  = _h.get("着順", "") == "1"
+                try:
+                    _odds_v = float(_h.get("単勝オッズ", 0) or 0)
+                except (ValueError, TypeError):
+                    _odds_v = 0.0
+                try:
+                    _fuku_v = int(_h.get("複勝配当", 0) or 0)
+                except (ValueError, TypeError):
+                    _fuku_v = 0
+                if _flag:
+                    _on_h.append({"o": round(_odds_v, 1), "f": _fuku_v, "w": _win})
+                else:
+                    _off["count"] += 1
+                    _off["tan_i"] += 100
+                    if _win:
+                        _off["tan_r"] += round(_odds_v * 100)
+                    if has_fuku:
+                        _off["fk_i"] += 100
+                        _off["fk_r"] += _fuku_v
+            _js_races.append({"on": _on_h, "off": _off})
+        _js_cls[_cls] = _js_races
+    _js_cls_order = [c for c in CLASS_ORDER if c in _js_cls]
+    _js_payload = _json.dumps(
+        {"hasFuku": has_fuku, "classes": _js_cls,
+         "classOrder": _js_cls_order,
+         "totalRaces": total_races, "totalHorses": total_horses},
+        ensure_ascii=False, separators=(",", ":"),
+    )
+
     # ── CSS ─────────────────────────────────────────────
     css = (
         "*{box-sizing:border-box;margin:0;padding:0;"
@@ -1379,6 +1421,14 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".tr-winflag{background:#DFFBEE}"
         ".empty-note{text-align:center;padding:32px;color:#aaa;font-size:12px;"
         "background:#fff;border:1px solid #e8e8e4;border-radius:10px}"
+        ".filter-bar{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}"
+        ".filter-label{font-size:12px;color:#888;margin-right:4px;white-space:nowrap}"
+        ".filter-btn{padding:5px 14px;border:1px solid #e8e8e4;border-radius:8px;"
+        "background:#fff;font-size:12px;cursor:pointer;color:#555;"
+        "transition:background .15s,color .15s,border-color .15s;white-space:nowrap}"
+        ".filter-btn:hover{background:#f5f5f0;border-color:#c9c5e8}"
+        ".filter-btn.active{background:#534AB7;color:#fff;border-color:#534AB7;font-weight:500}"
+        ".tr-filtered{opacity:0.18}"
         "@media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr)}"
         ".rmeta{display:none}"
         ".stbl th:nth-child(n+4),.stbl td:nth-child(n+4){display:none}}"
@@ -1435,6 +1485,16 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         f'</tr>'
     )
 
+    filter_bar = (
+        '<div class="filter-bar">'
+        '<span class="filter-label">穴馬フィルター（単勝オッズ）</span>'
+        '<button class="filter-btn active" data-min="0" onclick="applyFilter(0)">全馬</button>'
+        '<button class="filter-btn" data-min="5" onclick="applyFilter(5)">5倍以上</button>'
+        '<button class="filter-btn" data-min="10" onclick="applyFilter(10)">10倍以上</button>'
+        '<button class="filter-btn" data-min="20" onclick="applyFilter(20)">20倍以上</button>'
+        '</div>'
+    )
+
     stat_table = (
         '<div class="card">'
         '<h2>クラス別 回収率集計</h2>'
@@ -1452,7 +1512,7 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         '<th class="r">頭数</th><th class="r">単勝回収率</th><th class="r">複勝回収率</th>'
         '<th class="r">頭数</th><th class="r">単勝回収率</th><th class="r">複勝回収率</th>'
         '</tr></thead>'
-        f'<tbody>{stat_rows}</tbody>'
+        f'<tbody id="stat-tbody">{stat_rows}</tbody>'
         '</table></div></div>'
     )
 
@@ -1482,8 +1542,13 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
             fuku    = e(h.get("複勝配当", "---") or "---") if has_fuku else ""
             nstyle  = ' style="font-weight:600"' if (win or flag) else ""
             fuku_td = f'<td class="r mono">{fuku}</td>' if has_fuku else ""
+            try:
+                _odds_attr = float(h.get("単勝オッズ", 0) or 0)
+            except (ValueError, TypeError):
+                _odds_attr = 0.0
+            _flag_attr = "true" if flag else "false"
             rows += (
-                f'<tr{tr_cls}>'
+                f'<tr{tr_cls} data-flag="{_flag_attr}" data-odds="{_odds_attr}">'
                 f'<td><span class="{rk_cls}">{e(rank_s) or "-"}</span></td>'
                 f'<td class="r">{num}</td>'
                 f'<td{nstyle}>{name}</td>'
@@ -1587,8 +1652,8 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 
 <h1>過去結果<span class="ver-badge">{e(csv_path)}</span></h1>
 <p class="subtitle">{today_str} 閲覧&nbsp;&nbsp;全クラス 単勝回収率: フラグあり
-<span class="rate-badge {rc(global_on_tan)}">{global_on_tan}</span>
-/ フラグなし <span class="rate-badge {rc(global_off_tan)}">{global_off_tan}</span></p>
+<span id="global-on-tan" class="rate-badge {rc(global_on_tan)}">{global_on_tan}</span>
+/ フラグなし <span id="global-off-tan" class="rate-badge {rc(global_off_tan)}">{global_off_tan}</span></p>
 
 <div class="metrics">
   <div class="metric">
@@ -1611,6 +1676,7 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
   </div>
 </div>
 
+{filter_bar}
 {stat_table}
 
 <hr class="divider">
@@ -1619,6 +1685,78 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 {race_list_html}
 
 </div>
+<script>
+(function(){{
+const D={_js_payload};
+function pct(r,i){{return i?((r/i)*100).toFixed(1)+'%':'---';}}
+function rc(s){{
+  if(s==='---')return'rate-na';
+  const v=parseFloat(s);
+  return v>=100?'rate-hi':v>=80?'rate-mid':'rate-lo';
+}}
+function badge(s){{return'<span class="rate-badge '+rc(s)+'">'+s+'</span>';}}
+window.applyFilter=function(minOdds){{
+  document.querySelectorAll('.filter-btn').forEach(function(b){{
+    b.classList.toggle('active',Number(b.dataset.min)===minOdds);
+  }});
+  document.querySelectorAll('tr[data-flag]').forEach(function(tr){{
+    const isOn=tr.dataset.flag==='true';
+    const odds=parseFloat(tr.dataset.odds)||0;
+    tr.classList.toggle('tr-filtered',isOn&&minOdds>0&&odds<minOdds);
+  }});
+  const hasFuku=D.hasFuku;
+  let aOnTi=0,aOnTr=0,aOffTi=0,aOffTr=0;
+  let aOnFi=0,aOnFr=0,aOffFi=0,aOffFr=0;
+  let aOnC=0,aOffC=0;
+  let rows='';
+  D.classOrder.forEach(function(cls){{
+    const races=D.classes[cls]||[];
+    let onTi=0,onTr=0,onFi=0,onFr=0,onC=0;
+    let offTi=0,offTr=0,offFi=0,offFr=0,offC=0;
+    races.forEach(function(race){{
+      const fil=minOdds===0?race.on:race.on.filter(function(h){{return h.o>=minOdds;}});
+      if(fil.length>0){{
+        onC+=fil.length; onTi+=fil.length*100;
+        const winner=fil.find(function(h){{return h.w;}});
+        if(winner)onTr+=Math.round(winner.o*100);
+        if(hasFuku){{onFi+=fil.length*100; fil.forEach(function(h){{onFr+=h.f;}});}}
+      }}
+      const off=race.off;
+      offC+=off.count; offTi+=off.tan_i; offTr+=off.tan_r;
+      if(hasFuku){{offFi+=off.fk_i; offFr+=off.fk_r;}}
+    }});
+    const onT=pct(onTr,onTi),offT=pct(offTr,offTi);
+    const onF=hasFuku?pct(onFr,onFi):'---',offF=hasFuku?pct(offFr,offFi):'---';
+    rows+='<tr><td>'+cls+'</td>'
+      +'<td class="r">'+races.length+'</td>'
+      +'<td class="r">'+onC+'</td>'
+      +'<td class="r">'+badge(onT)+'</td>'
+      +'<td class="r">'+badge(onF)+'</td>'
+      +'<td class="r">'+offC+'</td>'
+      +'<td class="r">'+badge(offT)+'</td>'
+      +'<td class="r">'+badge(offF)+'</td></tr>';
+    aOnC+=onC; aOffC+=offC;
+    aOnTi+=onTi; aOnTr+=onTr; aOffTi+=offTi; aOffTr+=offTr;
+    aOnFi+=onFi; aOnFr+=onFr; aOffFi+=offFi; aOffFr+=offFr;
+  }});
+  const tOnT=pct(aOnTr,aOnTi),tOffT=pct(aOffTr,aOffTi);
+  const tOnF=hasFuku?pct(aOnFr,aOnFi):'---',tOffF=hasFuku?pct(aOffFr,aOffFi):'---';
+  rows+='<tr class="total-row"><td>合計</td>'
+    +'<td class="r">'+D.totalRaces+'</td>'
+    +'<td class="r">'+aOnC+'</td>'
+    +'<td class="r">'+badge(tOnT)+'</td>'
+    +'<td class="r">'+badge(tOnF)+'</td>'
+    +'<td class="r">'+aOffC+'</td>'
+    +'<td class="r">'+badge(tOffT)+'</td>'
+    +'<td class="r">'+badge(tOffF)+'</td></tr>';
+  document.getElementById('stat-tbody').innerHTML=rows;
+  var s1=document.getElementById('global-on-tan');
+  s1.className='rate-badge '+rc(tOnT); s1.textContent=tOnT;
+  var s2=document.getElementById('global-off-tan');
+  s2.className='rate-badge '+rc(tOffT); s2.textContent=tOffT;
+}};
+}})();
+</script>
 </body>
 </html>"""
 
