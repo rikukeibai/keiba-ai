@@ -13,6 +13,7 @@ import argparse
 import csv
 import re
 import sys
+import time
 import concurrent.futures
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -22,8 +23,23 @@ from bs4 import BeautifulSoup
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
 }
+
+def _make_session() -> requests.Session:
+    """netkeiba.com でクッキーを取得してセッションを確立"""
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    try:
+        s.get("https://www.netkeiba.com/", timeout=10)
+    except Exception:
+        pass
+    return s
+
+_SESSION = _make_session()
 
 # 場名 → 場コード
 VENUE_NAMES: Dict[str, str] = {
@@ -36,9 +52,14 @@ VENUE_NAMES: Dict[str, str] = {
 
 # ── HTTP / パース ────────────────────────────────────────────
 
+_REQUEST_INTERVAL = 2.0  # リクエスト間の最小待機秒数（クラス変数として上書き可）
+
 def get_soup(url: str) -> Optional[BeautifulSoup]:
+    time.sleep(_REQUEST_INTERVAL)
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = _SESSION.get(url, headers={"Referer": "https://db.netkeiba.com/"}, timeout=20)
+        if resp.status_code != 200:
+            return None
         resp.encoding = "euc-jp"
         return BeautifulSoup(resp.text, "html.parser")
     except requests.RequestException as e:
@@ -63,6 +84,25 @@ def cell_text(tds: list, idx: int) -> str:
         if el:
             return el.get_text(strip=True)
     return td.get_text(strip=True)
+
+
+def _extract_race_surface(soup) -> str:
+    """Extract race surface (芝/ダート/障害) from db.netkeiba race page."""
+    for cls_name in ["data_intro", "racedata", "race_data", "race-data"]:
+        el = soup.find(class_=cls_name)
+        if el:
+            t = el.get_text(" ", strip=True)
+            if "障害" in t:
+                return "障害"
+            if re.search(r"芝\s*[右左直]?\s*\d{3,4}", t):
+                return "芝"
+            if "ダート" in t:
+                return "ダート"
+    page_text = soup.get_text(" ", strip=True)
+    m = re.search(r"(障害|芝|ダート)\s*[右左直]?\s*\d{3,4}\s*m", page_text[:5000])
+    if m:
+        return m.group(1)
+    return ""
 
 
 def parse_fukusho_payouts(soup) -> Dict[str, int]:
@@ -130,6 +170,7 @@ def fetch_race_result(race_id: str) -> tuple:
     idx_last3f = ci("上り", "後3F")
     idx_odds   = ci("単勝")
 
+    surface = _extract_race_surface(soup)
     fukusho = parse_fukusho_payouts(soup)
 
     results = []
@@ -159,6 +200,7 @@ def fetch_race_result(race_id: str) -> tuple:
             "上がり3F":      cell_text(tds, idx_last3f),
             "単勝オッズ":    cell_text(tds, idx_odds),
             "複勝配当":      fukusho.get(umaban, 0),
+            "馬場":          surface,
         })
 
     return race_title, race_date, results
@@ -490,11 +532,12 @@ def generate_hanshin_2025_candidates() -> List[str]:
 
 def probe_race_exists(race_id: str) -> bool:
     """レースページが存在するか軽量チェック（HTML 全解析なし）"""
+    time.sleep(_REQUEST_INTERVAL)
     try:
-        resp = requests.get(
+        resp = _SESSION.get(
             f"https://db.netkeiba.com/race/{race_id}/",
-            headers=HEADERS,
-            timeout=10,
+            headers={"Referer": "https://db.netkeiba.com/"},
+            timeout=15,
         )
         return resp.status_code == 200 and b"race_table_01" in resp.content
     except requests.RequestException:
@@ -577,7 +620,7 @@ def collect_multi_venue_ids(year: int, venue_codes: List[str], target: int = 100
         if len(valid) >= target:
             break
         chunk = candidates[start: start + batch]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunk), 16)) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunk), 3)) as ex:
             flags = list(ex.map(probe_race_exists, chunk))
         found = [c for c, ok in zip(chunk, flags) if ok]
         valid.extend(found)
@@ -586,6 +629,7 @@ def collect_multi_venue_ids(year: int, venue_codes: List[str], target: int = 100
                 f"  {chunk[0]}〜{chunk[-1]}: {len(found)} 件有効（累計 {len(valid)} 件）",
                 file=sys.stderr,
             )
+        time.sleep(10.0)  # バッチ間インターバル（レートリミット対策）
 
     result = sorted(valid)[:target]
     print(f"収集完了: {len(result)} 件", file=sys.stderr)
@@ -599,7 +643,7 @@ def save_to_csv(all_race_data: list, filepath: str) -> None:
     fieldnames = [
         "race_id", "race_title", "race_date",
         "着順", "馬番", "馬名", "コーナー通過順", "上がり3F", "単勝オッズ", "複勝配当",
-        "条件1", "条件2", "仮説フラグ",
+        "条件1", "条件2", "仮説フラグ", "馬場",
     ]
     total = 0
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
@@ -621,6 +665,7 @@ def save_to_csv(all_race_data: list, filepath: str) -> None:
                     "条件1":      r.get("条件1", ""),
                     "条件2":      r.get("条件2", ""),
                     "仮説フラグ":  r.get("仮説フラグ", ""),
+                    "馬場":        r.get("馬場", ""),
                 })
                 total += 1
     print(f"CSV 保存完了: {filepath}  ({total} 行)", file=sys.stderr)
