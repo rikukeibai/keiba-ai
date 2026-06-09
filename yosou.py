@@ -1437,8 +1437,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".filter-btn:hover{background:#f5f5f0;border-color:#c9c5e8}"
         ".filter-btn.active{background:#534AB7;color:#fff;border-color:#534AB7;font-weight:500}"
         ".tr-filtered{opacity:0.18}"
-        ".filter-sep{display:inline-block;width:1px;height:18px;background:#e8e8e4;"
-        "margin:0 8px;vertical-align:middle}"
         "@media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr)}"
         ".rmeta{display:none}"
         ".stbl th:nth-child(n+4),.stbl td:nth-child(n+4){display:none}}"
@@ -1498,15 +1496,10 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
     filter_bar = (
         '<div class="filter-bar">'
         '<span class="filter-label">穴馬フィルター（単勝オッズ）</span>'
-        '<button class="filter-btn odds-btn active" data-min="0" onclick="applyFilter(0)">全馬</button>'
-        '<button class="filter-btn odds-btn" data-min="5" onclick="applyFilter(5)">5倍以上</button>'
-        '<button class="filter-btn odds-btn" data-min="10" onclick="applyFilter(10)">10倍以上</button>'
-        '<button class="filter-btn odds-btn" data-min="20" onclick="applyFilter(20)">20倍以上</button>'
-        '<span class="filter-sep"></span>'
-        '<span class="filter-label">馬場</span>'
-        '<button class="filter-btn surface-btn active" data-surface="" onclick="applySurface(\'\')">全</button>'
-        '<button class="filter-btn surface-btn" data-surface="芝" onclick="applySurface(\'芝\')">芝</button>'
-        '<button class="filter-btn surface-btn" data-surface="ダート" onclick="applySurface(\'ダート\')">ダート</button>'
+        '<button class="filter-btn active" data-min="0" onclick="applyFilter(0)">全馬</button>'
+        '<button class="filter-btn" data-min="5" onclick="applyFilter(5)">5倍以上</button>'
+        '<button class="filter-btn" data-min="10" onclick="applyFilter(10)">10倍以上</button>'
+        '<button class="filter-btn" data-min="20" onclick="applyFilter(20)">20倍以上</button>'
         '</div>'
     )
 
@@ -1704,7 +1697,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 <script>
 (function(){{
 const D={_js_payload};
-let curMinOdds=0,curSurface='';
 function pct(r,i){{return i?((r/i)*100).toFixed(1)+'%':'---';}}
 function rc(s){{
   if(s==='---')return'rate-na';
@@ -1712,19 +1704,26 @@ function rc(s){{
   return v>=100?'rate-hi':v>=80?'rate-mid':'rate-lo';
 }}
 function badge(s){{return'<span class="rate-badge '+rc(s)+'">'+s+'</span>';}}
-function rebuildStats(){{
+window.applyFilter=function(minOdds){{
+  document.querySelectorAll('.filter-btn').forEach(function(b){{
+    b.classList.toggle('active',Number(b.dataset.min)===minOdds);
+  }});
+  document.querySelectorAll('tr[data-flag]').forEach(function(tr){{
+    const isOn=tr.dataset.flag==='true';
+    const odds=parseFloat(tr.dataset.odds)||0;
+    tr.classList.toggle('tr-filtered',isOn&&minOdds>0&&odds<minOdds);
+  }});
   const hasFuku=D.hasFuku;
   let aOnTi=0,aOnTr=0,aOffTi=0,aOffTr=0;
   let aOnFi=0,aOnFr=0,aOffFi=0,aOffFr=0;
   let aOnC=0,aOffC=0,aTotalR=0;
   let rows='';
   D.classOrder.forEach(function(cls){{
-    const allRaces=D.classes[cls]||[];
-    const races=curSurface?allRaces.filter(function(r){{return r.s===curSurface;}}):allRaces;
+    const races=D.classes[cls]||[];
     let onTi=0,onTr=0,onFi=0,onFr=0,onC=0;
     let offTi=0,offTr=0,offFi=0,offFr=0,offC=0;
     races.forEach(function(race){{
-      const fil=curMinOdds===0?race.on:race.on.filter(function(h){{return h.o>=curMinOdds;}});
+      const fil=minOdds===0?race.on:race.on.filter(function(h){{return h.o>=minOdds;}});
       if(fil.length>0){{
         onC+=fil.length; onTi+=fil.length*100;
         const winner=fil.find(function(h){{return h.w;}});
@@ -1764,37 +1763,6 @@ function rebuildStats(){{
   s1.className='rate-badge '+rc(tOnT); s1.textContent=tOnT;
   var s2=document.getElementById('global-off-tan');
   s2.className='rate-badge '+rc(tOffT); s2.textContent=tOffT;
-}}
-function applyRowVis(){{
-  document.querySelectorAll('tr[data-flag]').forEach(function(tr){{
-    const isOn=tr.dataset.flag==='true';
-    const odds=parseFloat(tr.dataset.odds)||0;
-    tr.classList.toggle('tr-filtered',isOn&&curMinOdds>0&&odds<curMinOdds);
-  }});
-  document.querySelectorAll('details[data-surface]').forEach(function(d){{
-    const s=d.dataset.surface;
-    d.style.display=(curSurface===''||s===curSurface)?'':'none';
-  }});
-  document.querySelectorAll('.class-section').forEach(function(sec){{
-    const dets=sec.querySelectorAll('details');
-    if(!dets.length)return;
-    const any=Array.from(dets).some(function(d){{return d.style.display!=='none';}});
-    sec.style.display=any?'':'none';
-  }});
-}}
-window.applyFilter=function(minOdds){{
-  curMinOdds=minOdds;
-  document.querySelectorAll('.odds-btn').forEach(function(b){{
-    b.classList.toggle('active',Number(b.dataset.min)===minOdds);
-  }});
-  rebuildStats(); applyRowVis();
-}};
-window.applySurface=function(surface){{
-  curSurface=surface;
-  document.querySelectorAll('.surface-btn').forEach(function(b){{
-    b.classList.toggle('active',b.dataset.surface===surface);
-  }});
-  rebuildStats(); applyRowVis();
 }};
 }})();
 </script>
