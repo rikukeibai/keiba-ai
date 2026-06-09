@@ -29,7 +29,7 @@ from flask import Flask, Response, redirect
 from netkeiba_scraper import (
     HEADERS,
     check_corner_drop,
-    get_prev_race_info,
+    get_prev_races_info,
     get_race_last3f_values,
     last3f_rank,
 )
@@ -333,15 +333,15 @@ def fetch_shutuba(race_id: str) -> Optional[Tuple[str, str, List[Dict]]]:
 # ── 仮説フラグ付与（表示用データも収集） ─────────────────────
 
 def add_prediction_flags(horses: List[Dict], race_date: str) -> List[Dict]:
-    """前走データを取得し、条件1・2・仮説フラグと表示用データを付与"""
+    """前走・2走前データを取得し、条件1・2・仮説フラグと表示用データを付与（OR条件）"""
     if not race_date:
         return horses
 
-    # Step1: 前走情報を並行取得
-    prev_data: Dict[str, Optional[Dict]] = {}
+    # Step1: 前走・2走前情報を並行取得
+    prev_data: Dict[str, List[Dict]] = {}
 
     def _fetch_prev(horse_id):
-        return horse_id, get_prev_race_info(horse_id, race_date)
+        return horse_id, get_prev_races_info(horse_id, race_date, n=2)
 
     print("  前走データ取得中 ...", file=sys.stderr)
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
@@ -351,8 +351,8 @@ def add_prediction_flags(horses: List[Dict], race_date: str) -> List[Dict]:
             hid, data = f.result()
             prev_data[hid] = data
 
-    # Step2: 前走レースの上がり3Fリストを並行取得
-    unique_prev = {d["race_id"] for d in prev_data.values() if d}
+    # Step2: 前走・2走前レースの上がり3Fリストを並行取得
+    unique_prev = {d["race_id"] for lst in prev_data.values() for d in lst}
     last3f_cache: Dict[str, List[float]] = {}
 
     def _fetch_vals(rid):
@@ -364,35 +364,59 @@ def add_prediction_flags(horses: List[Dict], race_date: str) -> List[Dict]:
         for rid, vals in ex.map(_fetch_vals, unique_prev):
             last3f_cache[rid] = vals
 
-    # Step3: 条件判定・情報付与
+    # Step3: 条件判定・情報付与（パターン1 OR パターン2）
     for h in horses:
-        hid  = h.get("horse_id")
-        prev = prev_data.get(hid) if hid else None
+        hid       = h.get("horse_id")
+        prev_list = prev_data.get(hid, []) if hid else []
+        prev      = prev_list[0] if len(prev_list) > 0 else None
+        prev2     = prev_list[1] if len(prev_list) > 1 else None
 
-        if not prev:
+        if not prev and not prev2:
             continue
 
-        h["前走日付"]      = prev["date"]
-        h["前走コーナー順"] = prev["corner_order"] or "---"
+        h["前走日付"]      = prev["date"] if prev else "---"
+        h["前走コーナー順"] = (prev["corner_order"] or "---") if prev else "---"
 
-        cond1 = check_corner_drop(prev["corner_order"])
+        # パターン1: 前走コーナー下がり + 前走上がり3位以内
+        cond1 = check_corner_drop(prev["corner_order"]) if prev else False
+        cond2    = False
+        rank_str = "---"
+        if prev:
+            try:
+                val      = float(prev["last3f"])
+                all_vals = last3f_cache.get(prev["race_id"], [])
+                if all_vals:
+                    rank     = last3f_rank(val, all_vals)
+                    rank_str = str(rank)
+                    cond2    = rank <= 3
+            except (ValueError, TypeError):
+                pass
+        pattern1 = cond1 and cond2
 
-        cond2      = False
-        rank_str   = "---"
-        try:
-            val      = float(prev["last3f"])
-            all_vals = last3f_cache.get(prev["race_id"], [])
-            if all_vals:
-                rank     = last3f_rank(val, all_vals)
-                rank_str = str(rank)
-                cond2    = rank <= 3
-        except (ValueError, TypeError):
-            pass
+        # パターン2: 2走前コーナー下がり + 2走前上がり3位以内 + 前走6着以下
+        pattern2 = False
+        if prev2:
+            p2c1 = check_corner_drop(prev2["corner_order"])
+            p2c2 = False
+            try:
+                val2  = float(prev2["last3f"])
+                vals2 = last3f_cache.get(prev2["race_id"], [])
+                if vals2:
+                    p2c2 = last3f_rank(val2, vals2) <= 3
+            except (ValueError, TypeError):
+                pass
+            p2c3 = False
+            if prev:
+                try:
+                    p2c3 = int(prev["rank"]) >= 6
+                except (ValueError, TypeError):
+                    pass
+            pattern2 = p2c1 and p2c2 and p2c3
 
         h["前走3F順位"] = rank_str
         h["条件1"]     = cond1
         h["条件2"]     = cond2
-        h["仮説フラグ"] = cond1 and cond2
+        h["仮説フラグ"] = pattern1 or pattern2
 
     return horses
 
