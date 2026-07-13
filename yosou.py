@@ -1742,6 +1742,15 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
   </div>
 </div>
 
+<div class="chart-card">
+  <div class="chart-title">📊 クラス別回収率</div>
+  <div class="chart-note">フラグあり馬の単勝・複勝回収率</div>
+  <div class="chart-wrap">
+    <canvas id="class-rate-chart"></canvas>
+  </div>
+</div>
+
+
 {filter_bar}
 {stat_table}
 
