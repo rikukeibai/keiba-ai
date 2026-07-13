@@ -1701,6 +1701,7 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>過去結果 — {e(csv_path)}</title>
 <style>{css}</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <nav>
