@@ -269,7 +269,7 @@ def fetch_shutuba(race_id: str) -> Optional[Tuple[str, str, List[Dict]]]:
             col[th.get_text(separator="", strip=True)] = i
 
     idx_umaban = col.get("馬番", -1)
-    idx_name   = next((col[k] for k in ("馬名", "馬　名") if k in col), -1)
+    idx_name   = next((col[k] for k in ("馬名", "馬 名") if k in col), -1)
 
     horses = []
     seen: set = set()
@@ -1134,7 +1134,7 @@ def build_about_page() -> str:
           <span class="cond-chip">条件 1</span>
           <div class="cond-text">
             前走のコーナー通過順位が途中で下がった
-            <div class="cond-sub">例: 2→3→5→6（後退あり）✓　／　5→4→3→2（前進のみ）✗</div>
+            <div class="cond-sub">例: 2→3→5→6（後退あり）✓ ／ 5→4→3→2（前進のみ）✗</div>
           </div>
         </div>
         <div class="hypo-cond">
@@ -1350,47 +1350,46 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
             _js_races.append({"on": _on_h, "off": _off, "s": _race.get("surface", "")})
         _js_cls[_cls] = _js_races
     _js_cls_order = [c for c in CLASS_ORDER if c in _js_cls]
-   class_chart_data = []
 
-for cls in CLASS_ORDER:
-    d = class_stats.get(cls)
-    if not d:
-        continue
+    # ── クラス別回収率グラフ用データ ─────────────────────
+    class_chart_data = []
 
-    tan_rate = round(d["on_tan_r"] / d["on_tan_i"] * 100, 1) if d["on_tan_i"] else 0
-    fuku_rate = round(d["on_fk_r"] / d["on_fk_i"] * 100, 1) if has_fuku and d["on_fk_i"] else 0
+    for cls in CLASS_ORDER:
+        d = class_stats.get(cls)
+        if not d:
+            continue
 
-    class_chart_data.append({
-        "class": cls,
-        "tan": tan_rate,
-        "fuku": fuku_rate,
-    })
+        tan_rate = (
+            round(d["on_tan_r"] / d["on_tan_i"] * 100, 1)
+            if d["on_tan_i"] else 0
+        )
+        fuku_rate = (
+            round(d["on_fk_r"] / d["on_fk_i"] * 100, 1)
+            if has_fuku and d["on_fk_i"] else 0
+        )
 
-class_chart_json = _json.dumps(
-    class_chart_data,
-    ensure_ascii=False,
-    separators=(",", ":"),
-)
-_js_payload = _json.dumps(
-    {
-        "hasFuku": has_fuku,
-        "classes": _js_cls,
-        "classOrder": _js_cls_order,
-        "totalRaces": total_races,
-        "totalHorses": total_horses,
-    },
-    ensure_ascii=False,
-    separators=(",", ":"),
-)
+        class_chart_data.append({
+            "class": cls,
+            "tan": tan_rate,
+            "fuku": fuku_rate,
+        })
+
+    class_chart_json = _json.dumps(
         class_chart_data,
         ensure_ascii=False,
         separators=(",", ":"),
     )
-     
-      {"hasFuku": has_fuku, "classes": _js_cls,
-         "classOrder": _js_cls_order,
-         "totalRaces": total_races, "totalHorses": total_horses},
-        ensure_ascii=False, separators=(",", ":"),
+
+    _js_payload = _json.dumps(
+        {
+            "hasFuku": has_fuku,
+            "classes": _js_cls,
+            "classOrder": _js_cls_order,
+            "totalRaces": total_races,
+            "totalHorses": total_horses,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
 
     # ── CSS ─────────────────────────────────────────────
@@ -1423,7 +1422,7 @@ _js_payload = _json.dumps(
         ".chart-title{font-size:14px;font-weight:600;color:#534AB7;margin-bottom:4px}"
         ".chart-note{font-size:11px;color:#888;margin-bottom:14px}"
         ".chart-wrap{position:relative;width:100%;height:360px}"
-    　　 ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
+       ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
         ".metric-val{font-size:22px;font-weight:500}"
         ".metric-sub{font-size:11px;color:#aaa;margin-top:2px}"
         ".card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
