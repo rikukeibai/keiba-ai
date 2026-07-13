@@ -1380,6 +1380,85 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         separators=(",", ":"),
     )
 
+    # ── 4種類のグラフ用データ ─────────────────────────────
+    # 単勝は各馬100円購入、複勝はCSVの複勝配当をそのまま受取額として集計する。
+    def _new_stat() -> Dict[str, int]:
+        return {"tan_i": 0, "tan_r": 0, "fk_i": 0, "fk_r": 0, "count": 0}
+
+    def _add_horse(stat: Dict[str, int], horse: Dict) -> None:
+        stat["count"] += 1
+        stat["tan_i"] += 100
+        try:
+            odds = float(horse.get("単勝オッズ", 0) or 0)
+        except (ValueError, TypeError):
+            odds = 0.0
+        if horse.get("着順") == "1":
+            stat["tan_r"] += round(odds * 100)
+        if has_fuku:
+            stat["fk_i"] += 100
+            try:
+                stat["fk_r"] += int(horse.get("複勝配当", 0) or 0)
+            except (ValueError, TypeError):
+                pass
+
+    def _chart_rate(stat: Dict[str, int], kind: str) -> float:
+        inv_key, ret_key = ("tan_i", "tan_r") if kind == "tan" else ("fk_i", "fk_r")
+        return round(stat[ret_key] / stat[inv_key] * 100, 1) if stat[inv_key] else 0
+
+    odds_bins = [
+        ("〜4.9倍", 0, 5), ("5〜9.9倍", 5, 10), ("10〜19.9倍", 10, 20),
+        ("20〜49.9倍", 20, 50), ("50倍〜", 50, float("inf")),
+    ]
+    odds_stats = [_new_stat() for _ in odds_bins]
+    flag_stats = {"あり": _new_stat(), "なし": _new_stat()}
+    daily_stats: Dict[str, Dict[str, int]] = _dd(_new_stat)
+
+    for _race_id, _horses in race_groups.items():
+        _title = _horses[0].get("race_title", "")
+        if "障害" in _title or "新馬" in _title:
+            continue
+        _date = _horses[0].get("race_date", "")
+        for _horse in _horses:
+            _flag_label = "あり" if _horse.get("仮説フラグ") == "True" else "なし"
+            _add_horse(flag_stats[_flag_label], _horse)
+            if _flag_label == "あり":
+                if _date:
+                    _add_horse(daily_stats[_date], _horse)
+                try:
+                    _odds = float(_horse.get("単勝オッズ", 0) or 0)
+                except (ValueError, TypeError):
+                    _odds = -1
+                for _idx, (_label, _low, _high) in enumerate(odds_bins):
+                    if _low <= _odds < _high:
+                        _add_horse(odds_stats[_idx], _horse)
+                        break
+
+    odds_chart_json = _json.dumps([
+        {"band": b[0], "tan": _chart_rate(s, "tan"),
+         "fuku": _chart_rate(s, "fuku") if has_fuku else None, "count": s["count"]}
+        for b, s in zip(odds_bins, odds_stats)
+    ], ensure_ascii=False, separators=(",", ":"))
+    flag_chart_json = _json.dumps([
+        {"flag": label, "tan": _chart_rate(stat, "tan"),
+         "fuku": _chart_rate(stat, "fuku") if has_fuku else None, "count": stat["count"]}
+        for label, stat in flag_stats.items()
+    ], ensure_ascii=False, separators=(",", ":"))
+    _cum_i = _cum_r = 0
+    cumulative_chart_data = []
+    for _date in sorted(daily_stats):
+        _stat = daily_stats[_date]
+        _cum_i += _stat["tan_i"]
+        _cum_r += _stat["tan_r"]
+        cumulative_chart_data.append({
+            "date": _date.replace("/", "-"),
+            "daily": _chart_rate(_stat, "tan"),
+            "cumulative": round(_cum_r / _cum_i * 100, 1) if _cum_i else 0,
+            "count": _stat["count"],
+        })
+    cumulative_chart_json = _json.dumps(
+        cumulative_chart_data, ensure_ascii=False, separators=(",", ":")
+    )
+
     _js_payload = _json.dumps(
         {
             "hasFuku": has_fuku,
@@ -1422,6 +1501,8 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".chart-title{font-size:14px;font-weight:600;color:#534AB7;margin-bottom:4px}"
         ".chart-note{font-size:11px;color:#888;margin-bottom:14px}"
         ".chart-wrap{position:relative;width:100%;height:360px}"
+        ".chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}"
+        ".chart-grid .chart-card{margin-bottom:0}"
        ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
         ".metric-val{font-size:22px;font-weight:500}"
         ".metric-sub{font-size:11px;color:#aaa;margin-top:2px}"
@@ -1502,6 +1583,7 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".filter-btn.active{background:#534AB7;color:#fff;border-color:#534AB7;font-weight:500}"
         ".tr-filtered{opacity:0.18}"
         "@media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr)}"
+        ".chart-grid{grid-template-columns:1fr}.chart-wrap{height:300px}"
         ".rmeta{display:none}"
         ".stbl th:nth-child(n+4),.stbl td:nth-child(n+4){display:none}}"
     )
@@ -1752,12 +1834,30 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 
 <div class="chart-card">
   <div class="chart-title">📊 クラス別回収率</div>
-  <div class="chart-note">フラグあり馬の単勝・複勝回収率</div>
+  <div class="chart-note">フラグあり馬の単勝・複勝回収率（クラス比較）</div>
   <div class="chart-wrap">
     <canvas id="class-rate-chart"></canvas>
   </div>
 </div>
 
+<div class="chart-grid">
+  <div class="chart-card">
+    <div class="chart-title">🎯 オッズ帯別回収率</div>
+    <div class="chart-note">フラグあり馬を単勝オッズ帯ごとに集計</div>
+    <div class="chart-wrap"><canvas id="odds-rate-chart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">⚖️ フラグあり・なし比較</div>
+    <div class="chart-note">全出走馬をフラグの有無で比較</div>
+    <div class="chart-wrap"><canvas id="flag-compare-chart"></canvas></div>
+  </div>
+</div>
+
+<div class="chart-card">
+  <div class="chart-title">📈 日付別・累積単勝回収率</div>
+  <div class="chart-note">フラグあり馬の単勝100円購入として日別・累積で集計</div>
+  <div class="chart-wrap"><canvas id="cumulative-rate-chart"></canvas></div>
+</div>
 
 {filter_bar}
 {stat_table}
@@ -1770,14 +1870,14 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 </div>
 <script>
 const CLASS_CHART_DATA = {class_chart_json};
+const ODDS_CHART_DATA = {odds_chart_json};
+const FLAG_CHART_DATA = {flag_chart_json};
+const CUMULATIVE_CHART_DATA = {cumulative_chart_json};
 
 window.addEventListener("load", function () {{
 
     const ctx = document.getElementById("class-rate-chart");
-
-    if (!ctx) return;
-
-    new Chart(ctx, {{
+    if (ctx) new Chart(ctx, {{
         type: "bar",
         data: {{
             labels: CLASS_CHART_DATA.map(x => x.class),
@@ -1806,6 +1906,56 @@ window.addEventListener("load", function () {{
                     }}
                 }}
             }}
+        }}
+    }});
+
+    const oddsCtx = document.getElementById("odds-rate-chart");
+    if (oddsCtx) new Chart(oddsCtx, {{
+        type: "bar",
+        data: {{
+            labels: ODDS_CHART_DATA.map(x => x.band),
+            datasets: [
+                {{label:"単勝回収率", data:ODDS_CHART_DATA.map(x=>x.tan), backgroundColor:"#534AB7"}},
+                {{label:"複勝回収率", data:ODDS_CHART_DATA.map(x=>x.fuku), backgroundColor:"#19A974"}}
+            ]
+        }},
+        options: {{responsive:true, maintainAspectRatio:false,
+            plugins:{{tooltip:{{callbacks:{{afterLabel:c=>"該当馬: "+ODDS_CHART_DATA[c.dataIndex].count+"頭"}}}}}},
+            scales:{{y:{{beginAtZero:true,title:{{display:true,text:"回収率(%)"}}}}}}
+        }}
+    }});
+
+    const flagCtx = document.getElementById("flag-compare-chart");
+    if (flagCtx) new Chart(flagCtx, {{
+        type: "bar",
+        data: {{
+            labels: FLAG_CHART_DATA.map(x => "フラグ" + x.flag),
+            datasets: [
+                {{label:"単勝回収率", data:FLAG_CHART_DATA.map(x=>x.tan), backgroundColor:["#19A974", "#A9A9A9"]}},
+                {{label:"複勝回収率", data:FLAG_CHART_DATA.map(x=>x.fuku), backgroundColor:["#8BE0C1", "#D9D9D9"]}}
+            ]
+        }},
+        options: {{responsive:true, maintainAspectRatio:false,
+            plugins:{{tooltip:{{callbacks:{{afterLabel:c=>"対象馬: "+FLAG_CHART_DATA[c.dataIndex].count+"頭"}}}}}},
+            scales:{{y:{{beginAtZero:true,title:{{display:true,text:"回収率(%)"}}}}}}
+        }}
+    }});
+
+    const cumulativeCtx = document.getElementById("cumulative-rate-chart");
+    if (cumulativeCtx) new Chart(cumulativeCtx, {{
+        type: "line",
+        data: {{
+            labels: CUMULATIVE_CHART_DATA.map(x => x.date),
+            datasets: [
+                {{label:"累積単勝回収率", data:CUMULATIVE_CHART_DATA.map(x=>x.cumulative),
+                  borderColor:"#534AB7", backgroundColor:"rgba(83,74,183,.12)", fill:true, tension:.25, pointRadius:3}},
+                {{label:"日別単勝回収率", data:CUMULATIVE_CHART_DATA.map(x=>x.daily),
+                  borderColor:"#19A974", borderDash:[5,4], tension:.25, pointRadius:2}}
+            ]
+        }},
+        options: {{responsive:true, maintainAspectRatio:false,
+            plugins:{{tooltip:{{callbacks:{{afterLabel:c=>"対象馬: "+CUMULATIVE_CHART_DATA[c.dataIndex].count+"頭"}}}}}},
+            scales:{{y:{{beginAtZero:true,title:{{display:true,text:"回収率(%)"}}}}}}
         }}
     }});
 
@@ -2164,112 +2314,6 @@ def main() -> None:
 
     print_report(races_by_class, hist_rates, dates, args.hist, total_hist)
     save_log(races_by_class, args.log)
-    generate_html_report(
-        races_by_class, hist_rates, dates, args.hist, total_hist,
-        filepath=args.html,
-    )
-
-
-if __name__ == "__main__":
-    main()
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="来週末の全レースに学習適応仮説フラグを判定して表示",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "使用例:\n"
-            "  %(prog)s                              # 来週末（自動）\n"
-            "  %(prog)s --dates 20260613 20260614    # 日付指定\n"
-            "  %(prog)s --hist nikatsu_300.csv       # 参照 CSV を変更\n"
-        ),
-    )
-    parser.add_argument(
-        "--dates", nargs="+", metavar="YYYYMMDD",
-        help="対象日付（省略時: 最も近い土日）",
-    )
-    parser.add_argument(
-        "--hist", default=DEFAULT_HIST, metavar="FILE",
-        help=f"過去実績 CSV (default: {DEFAULT_HIST})",
-    )
-    parser.add_argument(
-        "--log", default=DEFAULT_LOG, metavar="FILE",
-        help=f"ログ出力先 (default: {DEFAULT_LOG})",
-    )
-    parser.add_argument(
-        "--html", default="yosou_result.html", metavar="FILE",
-        help="HTML レポート出力先 (default: yosou_result.html)",
-    )
-    args = parser.parse_args()
-
-    # 対象日付の決定
-    dates = args.dates if args.dates else next_weekend_dates()
-    print(f"対象日付: {', '.join(dates)}", file=sys.stderr)
-
-    # 過去実績データ読み込み
-    print(f"過去実績を読み込み中: {args.hist}", file=sys.stderr)
-    hist_rates, total_hist = load_hist_rates(args.hist)
-    print(f"  {total_hist} レース分のデータを読み込みました", file=sys.stderr)
-
-    # race_id を日付ごとに取得
-    all_race_ids: List[str] = []
-    print("レース一覧を取得中 ...", file=sys.stderr)
-    for d in dates:
-        all_race_ids.extend(fetch_race_ids_for_date(d))
-
-    if not all_race_ids:
-        print("エラー: レース情報を取得できませんでした", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"対象レース: {len(all_race_ids)} レース", file=sys.stderr)
-
-    # 出馬表取得 & フラグ判定
-    races_by_class: Dict[str, List[Dict]] = defaultdict(list)
-    total_horses = 0
-
-    for i, race_id in enumerate(all_race_ids, 1):
-        print(f"\n[{i}/{len(all_race_ids)}] {race_id} ({race_label(race_id)}) 処理中 ...",
-              file=sys.stderr)
-        result = fetch_shutuba(race_id)
-        if result is None:
-            print(f"  スキップ（出馬表取得失敗）", file=sys.stderr)
-            continue
-
-        race_title, race_date, horses = result
-        if not horses:
-            print(f"  スキップ（出走馬なし）", file=sys.stderr)
-            continue
-
-        print(f"  {race_title}  ({race_date})  {len(horses)}頭", file=sys.stderr)
-
-        horses = add_prediction_flags(horses, race_date)
-        cls    = classify(race_title)
-
-        flagged_n = sum(1 for h in horses if h["仮説フラグ"])
-        print(
-            f"  フラグあり: {flagged_n}頭 / {len(horses)}頭",
-            file=sys.stderr,
-        )
-        sys.stderr.flush()
-
-        races_by_class[cls].append({
-            "race_id":    race_id,
-            "race_title": race_title,
-            "race_date":  race_date,
-            "horses":     horses,
-        })
-        total_horses += len(horses)
-
-    print(f"\n取得完了: {sum(len(v) for v in races_by_class.values())} レース / {total_horses} 頭",
-          file=sys.stderr)
-
-    # 表示
-    print_report(races_by_class, hist_rates, dates, args.hist, total_hist)
-
-    # CSV 保存
-    save_log(races_by_class, args.log)
-
-    # HTML 生成
     generate_html_report(
         races_by_class, hist_rates, dates, args.hist, total_hist,
         filepath=args.html,
