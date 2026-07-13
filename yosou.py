@@ -1350,30 +1350,38 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
             _js_races.append({"on": _on_h, "off": _off, "s": _race.get("surface", "")})
         _js_cls[_cls] = _js_races
     _js_cls_order = [c for c in CLASS_ORDER if c in _js_cls]
-    _js_payload = _json.dumps(
-          # ── クラス別回収率グラフ用データ ─────────────────────
-    class_chart_data = []
+   class_chart_data = []
 
-    for cls in CLASS_ORDER:
-        d = class_stats.get(cls)
-        if not d:
-            continue
+for cls in CLASS_ORDER:
+    d = class_stats.get(cls)
+    if not d:
+        continue
 
-        tan_rate = round(
-            d["on_tan_r"] / d["on_tan_i"] * 100, 1
-        ) if d["on_tan_i"] else None
+    tan_rate = round(d["on_tan_r"] / d["on_tan_i"] * 100, 1) if d["on_tan_i"] else 0
+    fuku_rate = round(d["on_fk_r"] / d["on_fk_i"] * 100, 1) if has_fuku and d["on_fk_i"] else 0
 
-        fuku_rate = round(
-            d["on_fk_r"] / d["on_fk_i"] * 100, 1
-        ) if has_fuku and d["on_fk_i"] else None
+    class_chart_data.append({
+        "class": cls,
+        "tan": tan_rate,
+        "fuku": fuku_rate,
+    })
 
-        class_chart_data.append({
-            "class": cls,
-            "tan": tan_rate,
-            "fuku": fuku_rate,
-        })
-
-    class_chart_json = _json.dumps(
+class_chart_json = _json.dumps(
+    class_chart_data,
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+_js_payload = _json.dumps(
+    {
+        "hasFuku": has_fuku,
+        "classes": _js_cls,
+        "classOrder": _js_cls_order,
+        "totalRaces": total_races,
+        "totalHorses": total_horses,
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
         class_chart_data,
         ensure_ascii=False,
         separators=(",", ":"),
