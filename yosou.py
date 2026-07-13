@@ -1762,6 +1762,48 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 
 </div>
 <script>
+const CLASS_CHART_DATA = {class_chart_json};
+
+window.addEventListener("load", function () {{
+
+    const ctx = document.getElementById("class-rate-chart");
+
+    if (!ctx) return;
+
+    new Chart(ctx, {{
+        type: "bar",
+        data: {{
+            labels: CLASS_CHART_DATA.map(x => x.class),
+            datasets: [
+                {{
+                    label: "単勝回収率",
+                    data: CLASS_CHART_DATA.map(x => x.tan),
+                    backgroundColor: "#534AB7"
+                }},
+                {{
+                    label: "複勝回収率",
+                    data: CLASS_CHART_DATA.map(x => x.fuku),
+                    backgroundColor: "#19A974"
+                }}
+            ]
+        }},
+        options: {{
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {{
+                y: {{
+                    beginAtZero: true,
+                    title: {{
+                        display: true,
+                        text: "回収率(%)"
+                    }}
+                }}
+            }}
+        }}
+    }});
+
+}});
+
 (function(){{
 const D={_js_payload};
 function pct(r,i){{return i?((r/i)*100).toFixed(1)+'%':'---';}}
