@@ -1380,129 +1380,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         separators=(",", ":"),
     )
 
-    # ── オッズ帯別回収率（フラグあり） ─────────────────────
-    odds_bins = [
-        ("5倍未満", 0.0, 5.0),
-        ("5〜10倍", 5.0, 10.0),
-        ("10〜20倍", 10.0, 20.0),
-        ("20倍以上", 20.0, None),
-    ]
-    odds_acc = {
-        label: {"tan_i": 0, "tan_r": 0, "fk_i": 0, "fk_r": 0}
-        for label, _, _ in odds_bins
-    }
-
-    for horses in race_groups.values():
-        title = horses[0].get("race_title", "") if horses else ""
-        if "障害" in title or "新馬" in title:
-            continue
-        for h in horses:
-            if h.get("仮説フラグ") != "True":
-                continue
-            try:
-                odds = float(h.get("単勝オッズ", 0) or 0)
-            except (ValueError, TypeError):
-                odds = 0.0
-            label = next(
-                (name for name, lo, hi in odds_bins
-                 if odds >= lo and (hi is None or odds < hi)),
-                None,
-            )
-            if label is None:
-                continue
-            a = odds_acc[label]
-            a["tan_i"] += 100
-            if h.get("着順") == "1":
-                a["tan_r"] += round(odds * 100)
-            if has_fuku:
-                a["fk_i"] += 100
-                try:
-                    a["fk_r"] += int(h.get("複勝配当", 0) or 0)
-                except (ValueError, TypeError):
-                    pass
-
-    odds_chart_data = []
-    for label, _, _ in odds_bins:
-        a = odds_acc[label]
-        odds_chart_data.append({
-            "band": label,
-            "tan": round(a["tan_r"] / a["tan_i"] * 100, 1) if a["tan_i"] else 0,
-            "fuku": round(a["fk_r"] / a["fk_i"] * 100, 1) if has_fuku and a["fk_i"] else 0,
-        })
-    odds_chart_json = _json.dumps(
-        odds_chart_data, ensure_ascii=False, separators=(",", ":")
-    )
-
-    # ── フラグあり・なし 全体比較 ─────────────────────────
-    cmp_on_ti = sum(d["on_tan_i"] for d in class_stats.values())
-    cmp_on_tr = sum(d["on_tan_r"] for d in class_stats.values())
-    cmp_off_ti = sum(d["off_tan_i"] for d in class_stats.values())
-    cmp_off_tr = sum(d["off_tan_r"] for d in class_stats.values())
-    cmp_on_fi = sum(d["on_fk_i"] for d in class_stats.values())
-    cmp_on_fr = sum(d["on_fk_r"] for d in class_stats.values())
-    cmp_off_fi = sum(d["off_fk_i"] for d in class_stats.values())
-    cmp_off_fr = sum(d["off_fk_r"] for d in class_stats.values())
-
-    compare_chart_data = [
-        {
-            "flag": "フラグあり",
-            "tan": round(cmp_on_tr / cmp_on_ti * 100, 1) if cmp_on_ti else 0,
-            "fuku": round(cmp_on_fr / cmp_on_fi * 100, 1) if has_fuku and cmp_on_fi else 0,
-        },
-        {
-            "flag": "フラグなし",
-            "tan": round(cmp_off_tr / cmp_off_ti * 100, 1) if cmp_off_ti else 0,
-            "fuku": round(cmp_off_fr / cmp_off_fi * 100, 1) if has_fuku and cmp_off_fi else 0,
-        },
-    ]
-    compare_chart_json = _json.dumps(
-        compare_chart_data, ensure_ascii=False, separators=(",", ":")
-    )
-
-    # ── 日付別の累積回収率（フラグあり） ──────────────────
-    daily = _dd(lambda: {"tan_i": 0, "tan_r": 0, "fk_i": 0, "fk_r": 0})
-    for horses in race_groups.values():
-        if not horses:
-            continue
-        title = horses[0].get("race_title", "")
-        if "障害" in title or "新馬" in title:
-            continue
-        race_date = horses[0].get("race_date", "") or "日付不明"
-        for h in horses:
-            if h.get("仮説フラグ") != "True":
-                continue
-            a = daily[race_date]
-            a["tan_i"] += 100
-            try:
-                odds = float(h.get("単勝オッズ", 0) or 0)
-            except (ValueError, TypeError):
-                odds = 0.0
-            if h.get("着順") == "1":
-                a["tan_r"] += round(odds * 100)
-            if has_fuku:
-                a["fk_i"] += 100
-                try:
-                    a["fk_r"] += int(h.get("複勝配当", 0) or 0)
-                except (ValueError, TypeError):
-                    pass
-
-    cumulative_chart_data = []
-    cum_ti = cum_tr = cum_fi = cum_fr = 0
-    for race_date in sorted(daily):
-        a = daily[race_date]
-        cum_ti += a["tan_i"]
-        cum_tr += a["tan_r"]
-        cum_fi += a["fk_i"]
-        cum_fr += a["fk_r"]
-        cumulative_chart_data.append({
-            "date": race_date,
-            "tan": round(cum_tr / cum_ti * 100, 1) if cum_ti else 0,
-            "fuku": round(cum_fr / cum_fi * 100, 1) if has_fuku and cum_fi else 0,
-        })
-    cumulative_chart_json = _json.dumps(
-        cumulative_chart_data, ensure_ascii=False, separators=(",", ":")
-    )
-
     _js_payload = _json.dumps(
         {
             "hasFuku": has_fuku,
@@ -1545,8 +1422,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".chart-title{font-size:14px;font-weight:600;color:#534AB7;margin-bottom:4px}"
         ".chart-note{font-size:11px;color:#888;margin-bottom:14px}"
         ".chart-wrap{position:relative;width:100%;height:360px}"
-        ".chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px}"
-        ".chart-grid .chart-card{margin-bottom:0}"
        ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
         ".metric-val{font-size:22px;font-weight:500}"
         ".metric-sub{font-size:11px;color:#aaa;margin-top:2px}"
@@ -1627,7 +1502,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         ".filter-btn.active{background:#534AB7;color:#fff;border-color:#534AB7;font-weight:500}"
         ".tr-filtered{opacity:0.18}"
         "@media(max-width:640px){.metrics{grid-template-columns:repeat(2,1fr)}"
-        ".chart-grid{grid-template-columns:1fr}"
         ".rmeta{display:none}"
         ".stbl th:nth-child(n+4),.stbl td:nth-child(n+4){display:none}}"
     )
@@ -1884,30 +1758,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
   </div>
 </div>
 
-<div class="chart-grid">
-  <div class="chart-card">
-    <div class="chart-title">📊 オッズ帯別回収率</div>
-    <div class="chart-note">フラグあり馬を単勝オッズ帯ごとに集計</div>
-    <div class="chart-wrap">
-      <canvas id="odds-rate-chart"></canvas>
-    </div>
-  </div>
-  <div class="chart-card">
-    <div class="chart-title">📊 フラグあり・なし比較</div>
-    <div class="chart-note">全クラス合算の単勝・複勝回収率</div>
-    <div class="chart-wrap">
-      <canvas id="flag-compare-chart"></canvas>
-    </div>
-  </div>
-</div>
-
-<div class="chart-card">
-  <div class="chart-title">📈 日付別 累積回収率</div>
-  <div class="chart-note">フラグあり馬を日付順に累積集計</div>
-  <div class="chart-wrap">
-    <canvas id="cumulative-rate-chart"></canvas>
-  </div>
-</div>
 
 {filter_bar}
 {stat_table}
@@ -1920,9 +1770,6 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
 </div>
 <script>
 const CLASS_CHART_DATA = {class_chart_json};
-const ODDS_CHART_DATA = {odds_chart_json};
-const COMPARE_CHART_DATA = {compare_chart_json};
-const CUMULATIVE_CHART_DATA = {cumulative_chart_json};
 
 window.addEventListener("load", function () {{
 
@@ -1961,58 +1808,6 @@ window.addEventListener("load", function () {{
             }}
         }}
     }});
-
-    const oddsCtx = document.getElementById("odds-rate-chart");
-    if (oddsCtx) {{
-        new Chart(oddsCtx, {{
-            type: "bar",
-            data: {{
-                labels: ODDS_CHART_DATA.map(x => x.band),
-                datasets: [
-                    {{label: "単勝回収率", data: ODDS_CHART_DATA.map(x => x.tan), backgroundColor: "#534AB7"}},
-                    {{label: "複勝回収率", data: ODDS_CHART_DATA.map(x => x.fuku), backgroundColor: "#19A974"}}
-                ]
-            }},
-            options: {{responsive: true, maintainAspectRatio: false,
-                scales: {{y: {{beginAtZero: true, title: {{display: true, text: "回収率(%)"}}}}}}
-            }}
-        }});
-    }}
-
-    const compareCtx = document.getElementById("flag-compare-chart");
-    if (compareCtx) {{
-        new Chart(compareCtx, {{
-            type: "bar",
-            data: {{
-                labels: COMPARE_CHART_DATA.map(x => x.flag),
-                datasets: [
-                    {{label: "単勝回収率", data: COMPARE_CHART_DATA.map(x => x.tan), backgroundColor: "#534AB7"}},
-                    {{label: "複勝回収率", data: COMPARE_CHART_DATA.map(x => x.fuku), backgroundColor: "#19A974"}}
-                ]
-            }},
-            options: {{responsive: true, maintainAspectRatio: false,
-                scales: {{y: {{beginAtZero: true, title: {{display: true, text: "回収率(%)"}}}}}}
-            }}
-        }});
-    }}
-
-    const cumulativeCtx = document.getElementById("cumulative-rate-chart");
-    if (cumulativeCtx) {{
-        new Chart(cumulativeCtx, {{
-            type: "line",
-            data: {{
-                labels: CUMULATIVE_CHART_DATA.map(x => x.date),
-                datasets: [
-                    {{label: "単勝累積回収率", data: CUMULATIVE_CHART_DATA.map(x => x.tan), borderColor: "#534AB7", backgroundColor: "#534AB7", tension: 0.2, pointRadius: 2}},
-                    {{label: "複勝累積回収率", data: CUMULATIVE_CHART_DATA.map(x => x.fuku), borderColor: "#19A974", backgroundColor: "#19A974", tension: 0.2, pointRadius: 2}}
-                ]
-            }},
-            options: {{responsive: true, maintainAspectRatio: false,
-                interaction: {{mode: "index", intersect: false}},
-                scales: {{y: {{beginAtZero: true, title: {{display: true, text: "回収率(%)"}}}}}}
-            }}
-        }});
-    }}
 
 }});
 
