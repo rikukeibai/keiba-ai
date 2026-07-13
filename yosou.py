@@ -1351,7 +1351,35 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         _js_cls[_cls] = _js_races
     _js_cls_order = [c for c in CLASS_ORDER if c in _js_cls]
     _js_payload = _json.dumps(
-        {"hasFuku": has_fuku, "classes": _js_cls,
+          # ── クラス別回収率グラフ用データ ─────────────────────
+    class_chart_data = []
+
+    for cls in CLASS_ORDER:
+        d = class_stats.get(cls)
+        if not d:
+            continue
+
+        tan_rate = round(
+            d["on_tan_r"] / d["on_tan_i"] * 100, 1
+        ) if d["on_tan_i"] else None
+
+        fuku_rate = round(
+            d["on_fk_r"] / d["on_fk_i"] * 100, 1
+        ) if has_fuku and d["on_fk_i"] else None
+
+        class_chart_data.append({
+            "class": cls,
+            "tan": tan_rate,
+            "fuku": fuku_rate,
+        })
+
+    class_chart_json = _json.dumps(
+        class_chart_data,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+     
+      {"hasFuku": has_fuku, "classes": _js_cls,
          "classOrder": _js_cls_order,
          "totalRaces": total_races, "totalHorses": total_horses},
         ensure_ascii=False, separators=(",", ":"),
@@ -1382,7 +1410,12 @@ def build_history_page(csv_path: str = DEFAULT_HIST) -> str:
         "background:#EEEDFE;color:#534AB7;border-radius:6px;margin-left:8px;vertical-align:middle}"
         ".metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}"
         ".metric{background:#fff;border:1px solid #e8e8e4;border-radius:10px;padding:12px 14px}"
-        ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
+       ".chart-card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
+        "padding:18px 20px;margin-bottom:16px}"
+        ".chart-title{font-size:14px;font-weight:600;color:#534AB7;margin-bottom:4px}"
+        ".chart-note{font-size:11px;color:#888;margin-bottom:14px}"
+        ".chart-wrap{position:relative;width:100%;height:360px}"
+    　　 ".metric-label{font-size:11px;color:#888;margin-bottom:4px}"
         ".metric-val{font-size:22px;font-weight:500}"
         ".metric-sub{font-size:11px;color:#aaa;margin-top:2px}"
         ".card{background:#fff;border:1px solid #e8e8e4;border-radius:12px;"
